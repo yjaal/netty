@@ -27,7 +27,7 @@ public class ChatServerInitializer extends ChannelInitializer<Channel> {
     protected void initChannel(Channel ch) throws Exception {
         ChannelPipeline pipeline = ch.pipeline();
         // 将字节解码为 HttpRequest、HttpContent 和 LastHttpContent。
-        // 并将 HttpRequest、HttpContent 和 Last- HttpContent 编码为字节
+        // 并将 HttpRequest、HttpContent 和 LastHttpContent 编码为字节
         pipeline.addLast(new HttpServerCodec());
         // 写入一个文件的内容
         pipeline.addLast(new ChunkedWriteHandler());

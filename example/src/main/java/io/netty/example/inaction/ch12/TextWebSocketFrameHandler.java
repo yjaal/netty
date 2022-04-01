@@ -34,7 +34,7 @@ public class TextWebSocketFrameHandler extends SimpleChannelInboundHandler<TextW
     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
         // 通知所有已经连接的 WebSocket 客户端新的客户端已经连接上了
         if (evt == ServerHandshakeStateEvent.HANDSHAKE_COMPLETE) {
-            // 如果该事件表示握手成 功，则从该 Channelipeline 中移除 HttpRequestHandler
+            // 如果该事件表示握手成 功，则从该 ChannelPipeline 中移除 HttpRequestHandler
             // 因为将不会接收到任何 HTTP 消息了
             ctx.pipeline().remove(HTTPRequestHandler.class);
             // 通知所有已经连接的 WebSocket 客户端新的客户端已经连接上了

@@ -52,6 +52,7 @@ public class HTTPRequestHandler extends SimpleChannelInboundHandler<FullHttpRequ
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest req) throws Exception {
         if (wsUri.equalsIgnoreCase(req.uri())) {
+            System.out.println("收到请求: " + req.toString());
             // 如果请求了 WebSocket 协议升级，则增加引用
             // 计数(调用 retain()方法)， 并将它传递给下一个 ChannelInboundHandler
             // 之所以需要调用retain()方法，是因为调用channelRead() 方法完成之后，
@@ -73,7 +74,7 @@ public class HTTPRequestHandler extends SimpleChannelInboundHandler<FullHttpRequ
             RandomAccessFile file = new RandomAccessFile(INDEX, "r");
             DefaultHttpResponse resp = new DefaultHttpResponse(
                 req.protocolVersion(), HttpResponseStatus.OK);
-            resp.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain; charset=UTF-8");
+            resp.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=UTF-8");
             boolean keepAlive = HttpUtil.isKeepAlive(req);
             if (keepAlive) {
                 // 如果请求了 keep-alive， 则添加所需要的 HTTP 头信息
