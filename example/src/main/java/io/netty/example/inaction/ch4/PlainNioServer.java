@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.ByteBuffer;
-import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -27,7 +26,7 @@ public class PlainNioServer {
         ServerSocket ssocket = serverChannel.socket();
         ssocket.bind(new InetSocketAddress(port));
         Selector selector = Selector.open();
-        // 将ServerSocket
+        // 将ServerSocket注册到开关上面，表明接受外部连接
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
         final ByteBuffer msg = ByteBuffer.wrap("Hi!\r\n".getBytes());
         for (; ; ) {
