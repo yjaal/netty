@@ -86,9 +86,7 @@ public long transferTo(long position, long count, WritableByteChannel target) th
 
 最后 `DirectByteBuffery`与 `MappedByteBuffer`的区别就显而易见了，前者封装了直接传输操作，而后者封装的是 `mmap`，也就是只能进行文件 `IO `操作。`MappedByteBuffer `是根据 `mmap `产生的映射缓冲区，这部分缓冲区被映射到对应的文件页上，通过 `MappedByteBuffer`可以直接操作映射缓冲区，而这部分缓冲区又被映射到文件页上，操作系统通过对应内存页的调入和调出完成文件的写入和写出。
 
-# 2. connect 与 bind 分析
-
-## 2.1 基本阻塞IO分析
+# 2 基本阻塞IO分析
 
 ```java
 package io.netty.example.mynio;
@@ -214,7 +212,7 @@ public class BIOClient {
 }
 ```
 
-### 2.1.1 new ServerSocket(port)
+## 2.1 new ServerSocket(port)
 
 ```java
 // ServerSocket.java
@@ -238,7 +236,7 @@ public ServerSocket(int port, int backlog, InetAddress bindAddr) throws IOExcept
 * bind
   这里其实就是将上面的 `impl `绑定到我们指定的端口上面，然后进行监听
 
-### 2.1.2 accept
+## 2.2 accept
 
 ```java
 // ServerSocket.java
@@ -366,7 +364,7 @@ public void setOption(int opt, Object val) throws SocketException {
 
 这样我们可以通过上述方法来设置超时时间。
 
-### 2.1.2 BIO 中实现非阻塞
+## 2.2 BIO 中实现非阻塞
 
 这里首先要区分同步、异步和阻塞、非阻塞的区别。同步、异步是建立在系统层面的，同步表示系统收到请求，会在响应资源准备好之前一直等待；而异步表示系统会返回一个信号给服务端，用于告知后面会如何处理这个请求。阻塞、非阻塞是在应用层面，阻塞表示在响应资源准备好之前应用一直阻塞；而非阻塞表示应用还是在执行，但是会一直检查响应资源是否准备好。
 
@@ -719,9 +717,9 @@ public class BIOServerNoBR {
 
 注意，这里的超时时间是通过 `socket `设置的。这里我们可以将其看作最原始的 `NIO`。但是这种方式在面对大量的客户端时会存在问题，一个是线程之间的切换，另一个是虽然我们使用了线程池，但是可能会导致阻塞队列过大。此时 `NIO`可以帮助我们解决此问题，我们无须每次创建线程，`NIO`会为每个客户端新建一个 `Channel`。
 
-## 2.2 NIO 分析
+# 3. NIO 分析
 
-### 2.2.1 Channel 异步中断
+## 3.1 Channel 异步中断
 
 其实 `Channel`就类似于 `Socket`的一个装饰器。
 
@@ -890,7 +888,7 @@ public void interrupt() {
 * A被中断时，B阻塞在底层 `read`方法中：A线程抛出 `ClosedByInterruptException`异常，B线程底层方法抛出异常返回，`end`方法中抛出 `AsynchronousCloseException`异常
 * A被中断时，B已经读取到数据：A线程抛出 `ClosedByInterruptException`异常，B线程正常返回
 
-### 2.2.2 赋予Channel可被多路复用的能力
+## 3.2 赋予Channel可被多路复用的能力
 
 `Channel`是需要被 `Selector`来管理的，`Selector`根据 `Channel`的状态来分配任务，所以 `Channel`应该被注册到 `Selector`上面，同时会返回一个 `SelectionKey`对象来表示这个 `Channel`在 `Selector`上的状态。
 
@@ -1044,7 +1042,9 @@ protected final void processDeregisterQueue() throws IOException {
 
 这里，要注意的是，继承了 `AbstractSelectableChannel`这个类之后，新创建的channel始终处于阻塞模式。然而与 `Selector`的多路复用有关的操作必须基于非阻塞模式，所以在注册到 `Selector`之前，必须将 `channel`置于非阻塞模式，并且在取消注册之前，`channel`可能不会返回到阻塞模式。以通过调用 `channel`的 `isBlocking`方法来确定其是否为阻塞模式。如果不修改为非阻塞模式，那么会报 `IllegalBlockingModeException`异常。
 
-### 2.2.3 赋予Channel Socket能力
+## 3.3 赋予Channel Socket能力
+
+上面有说其实 `channel`就是 `socket`的一个装饰器，但是目前还只拥有了关闭，检查是否打开，多路复用的能力，还不具备 `socket`的能力。于是定义了一个 `NetworkChannel`的接口来赋予这种能力。这里主要是提供了绑定到某个 `socket`和管理开关 `option`的能力。
 
 ```java
 public interface NetworkChannel extends Channel {
@@ -1146,6 +1146,8 @@ public SocketChannel accept() throws IOException {
 
 基本的模式和之前一样，`begin`开始，`end`结束。后面的 `end(blocking, n > 0)` 的第二个参数 `completed`只是判断这个阻塞等待过程是否结束，而不是说 `Channel`关闭了。接收成功了则返回1，否则返回 `UNAVAILABLE, INTERRUPTED`。
 
+在 `bind`之后和 `accept`之前还会有一个 `listen`方法，主要用于监听连接，0表示成功，-1表示失败。
+
 在之前 `BIO`解析处说到当建立连接时会绑定一个新的 `SocketImpl`，然后通信时使用这个新的类对象，这里回顾一下
 
 ```java
@@ -1202,3 +1204,883 @@ void socketCreate(boolean stream) throws IOException {
 而在 `ServerSocketChannel`中我们使用 `accept`获取客户端连接，从代码中可以清晰的看到
 
 `new SocketChannelImpl(provider(), newfd, isa)`创建了一个新的对象。
+
+下面来关注下开关管理相关方法
+
+**supportedOptions**
+
+```java
+//sun.nio.ch.ServerSocketChannelImpl#supportedOptions
+@Override
+public final Set<SocketOption<?>> supportedOptions() {
+    return DefaultOptionsHolder.defaultOptions;
+}
+//sun.nio.ch.ServerSocketChannelImpl.DefaultOptionsHolder
+private static class DefaultOptionsHolder {
+    static final Set<SocketOption<?>> defaultOptions = defaultOptions();
+
+    private static Set<SocketOption<?>> defaultOptions() {
+        HashSet<SocketOption<?>> set = new HashSet<>();
+        set.add(StandardSocketOptions.SO_RCVBUF);
+        set.add(StandardSocketOptions.SO_REUSEADDR);
+        if (Net.isReusePortAvailable()) {
+            set.add(StandardSocketOptions.SO_REUSEPORT);
+        }
+        set.add(StandardSocketOptions.IP_TOS);
+        set.addAll(ExtendedSocketOptions.options(SOCK_STREAM));
+        //返回不可修改的HashSet 
+        return Collections.unmodifiableSet(set);
+    }
+}
+//java.net.StandardSocketOptions
+//socket接受缓存大小  
+public static final SocketOption<Integer> SO_RCVBUF =
+        new StdSocketOption<Integer>("SO_RCVBUF", Integer.class);
+//是否可重用地址  
+public static final SocketOption<Boolean> SO_REUSEADDR =
+        new StdSocketOption<Boolean>("SO_REUSEADDR", Boolean.class);
+//是否可重用port
+public static final SocketOption<Boolean> SO_REUSEPORT =
+        new StdSocketOption<Boolean>("SO_REUSEPORT", Boolean.class);
+//Internet协议（IP）标头（header）中的服务类型（ToS）。
+public static final SocketOption<Integer> IP_TOS =
+        new StdSocketOption<Integer>("IP_TOS", Integer.class);
+```
+
+这其实就是一些配置管理的方法，通过内部缓存来保存。
+
+> `Linux 3.9`之后加入了 `SO_REUSEPORT`配置，这个配置很强大，多个 `socket`(不管是处于监听还是非监听，不管是 `TCP`还是 `UDP`)只要在绑定之前设置了 `SO_REUSEPORT`属性，那么就可以绑定到完全相同的地址和端口。
+>
+> 为了阻止”`port `劫持”(`Port hijacking`)有一个特别的限制：所有希望共享源地址和端口的 `socket`都必须拥有相同的有效用户 `id(effective user ID)`。这样一个用户就不能从另一个用户那里”偷取”端口。另外，内核在处理 `SO_REUSEPORT socket`的时候使用了其它系统上没有用到的”特殊技巧”：
+>
+> 对于 `UDP socket`，内核尝试平均的转发数据报;
+>
+> 对于 `TCP`监听 `socket`，内核尝试将新的客户连接请求(由 `accept`返回)平均的交给共享同一地址和端口的 `socket`(服务器监听 `socket`)。
+>
+> 例如：一个简单的服务器程序的多个实例可以使用 `SO_REUSEPORT socket`，这样就实现一个简单的负载均衡，因为内核已经把请求的分配都做了。
+
+**ServerSocketChannel与ServerSocket在bind处的异同**
+
+基本差不多，当new一个ServerSocket对象时内部会调用bind方法（之前已有解析），而对于ServerSocketChannel来说，我们是直接调用的open方法来获取的，其中也会进行绑定，这种方式降低了我们的使用难度。
+
+**FileDescriptor**
+
+通过 `FileDescriptor` 这个类的实例来充当底层机器特定结构的不透明处理，表示打开文件，打开 `socket`或其他字节源或接收器。文件描述符的主要用途是创建一个 `FileInputStream `或 `FileOutputStream`来包含它。
+
+我们平时所用的标准输入，输出，错误流的句柄可以如下，通常，我们不会直接使用它们，而是使用 `java.lang.System.in，java.lang.System#out，java.lang.System#err:`
+
+```java
+public static final FileDescriptor in = new FileDescriptor(0);
+public static final FileDescriptor out = new FileDescriptor(1);
+public static final FileDescriptor err = new FileDescriptor(2);
+```
+
+## 3.4 SocketChannel解读
+
+这里也可以通过调用此类的 `open`方法来创建 `socket channel`。这里需要注意：
+
+* 无法为任意预先存在的 `socket`创建 `channel`。在 `BIO`中我们是直接创建 `socket`，但是并不存在 `channel`与之对应，也无法为``socket新创建一个 `channel`。
+* 新创建的 `socket channel`已打开但尚未连接。也就是需要手动调用 `connet`方法。
+* 尝试在未连接的 `channel`上调用 `I/O`操作将导致抛出 `NotYetConnectedException`。
+* 一旦连接后，`socket channel`会保持连接状态，直到它关闭。
+* 是否有连接 `socket channel`可以通过确定调用其 `isConnected`方法。
+
+`socket channel`支持 非阻塞连接：
+
+* 可以先创建 `socket channel`，然后可以通过 `connect`方法建立到远程``socket的连接。
+* 通过调用 `finishConnect`方法来判断连接是否完成。也就是在非阻塞连接中不断的调用此方法进行轮询。
+* 判断是否正在进行连接操作可以通过调用 `isConnectionPending`方法来确定。
+
+`socket channel`支持异步关闭，类似于 `Channel`类中的异步关闭操作：
+
+* 如果 `socket`的输入端被一个线程关闭而另一个线程在此 `socket channel`上因在进行读操作而被阻塞，那么被阻塞线程中的读操作将不读取任何字节并将返回 -1 。
+* 如果 `socket`的输出端被一个线程关闭而另一个线程在 `socket channel`上因在进行写操作而被阻塞，则被阻塞的线程将收到 `AsynchronousCloseException`。
+
+**ServerSocketChannel与SocketChannel的open()**
+
+```java
+//java.nio.channels.SocketChannel#open()
+// 一般常用此方法，因为可以接着设置为非阻塞模式
+public static SocketChannel open() throws IOException {
+    return SelectorProvider.provider().openSocketChannel();
+}
+//java.nio.channels.SocketChannel#open(java.net.SocketAddress)
+//open方法可以直接传入连接的服务器地址
+public static SocketChannel open(SocketAddress remote)
+    throws IOException
+{
+    //默认是阻塞模式
+    SocketChannel sc = open();
+    try {
+        sc.connect(remote);
+    } catch (Throwable x) {
+        try {
+            sc.close();
+        } catch (Throwable suppressed) {
+            x.addSuppressed(suppressed);
+        }
+        throw x;
+    }
+    assert sc.isConnected();
+    return sc;
+}
+//sun.nio.ch.SelectorProviderImpl#openSocketChannel
+public SocketChannel openSocketChannel() throws IOException {
+    return new SocketChannelImpl(this);
+}
+//sun.nio.ch.SocketChannelImpl#SocketChannelImpl(java.nio.channels.spi.SelectorProvider)
+SocketChannelImpl(SelectorProvider sp) throws IOException {
+    super(sp);
+     //invoke socket function，true is TCP
+    this.fd = Net.socket(true);
+    this.fdVal = IOUtil.fdVal(fd);
+}
+//sun.nio.ch.Net#socket(boolean)
+static FileDescriptor socket(boolean stream) throws IOException {
+    return socket(UNSPEC, stream);
+}
+//sun.nio.ch.Net#socket(java.net.ProtocolFamily, boolean)
+static FileDescriptor socket(ProtocolFamily family, boolean stream)
+    throws IOException {
+    boolean preferIPv6 = isIPv6Available() &&
+        (family != StandardProtocolFamily.INET);
+    return IOUtil.newFD(socket0(preferIPv6, stream, false, fastLoopback));
+}
+//sun.nio.ch.IOUtil#newFD
+public static FileDescriptor newFD(int i) {
+    FileDescriptor fd = new FileDescriptor();
+    setfdVal(fd, i);
+    return fd;
+}
+static native void setfdVal(FileDescriptor fd, int value);
+```
+
+这里在最后创建了一个新的文件描述符，我们知道 `socket`是绑定在 `channel`上面，而通过文件描述符是可以知道这个 `socket`是输入、输出还是报错，那如果想知道 `channel`的状态，那么可以将文件描述符也绑定到 `channel`上即可。
+
+文件描述符是可以表示一个状态，也可以表示一个通道。这样我们就可以对代表 `socket`状态进行操作了，也就是改变 `SelecitonKey`对 `ops`进行操作了。这样就实现了一个状态的管理。
+
+**SocketChannel#connect**
+
+```java
+//sun.nio.ch.SocketChannelImpl#connect
+@Override
+public boolean connect(SocketAddress sa) throws IOException {
+    InetSocketAddress isa = Net.checkAddress(sa);
+    SecurityManager sm = System.getSecurityManager();
+    if (sm != null)
+        sm.checkConnect(isa.getAddress().getHostAddress(), isa.getPort());
+
+    InetAddress ia = isa.getAddress();
+    if (ia.isAnyLocalAddress())
+        ia = InetAddress.getLocalHost();
+
+    try {
+        readLock.lock();
+        try {
+            writeLock.lock();
+            try {
+                int n = 0;
+                boolean blocking = isBlocking();
+                try {
+                    //支持线程中断，通过设置当前线程的Interruptible blocker属性实现
+                    beginConnect(blocking, isa);
+                    do {
+                    //调用connect函数实现，如果采用堵塞模式，会一直等待，直到成功或出//现异常
+                        n = Net.connect(fd, ia, isa.getPort());
+                    } while (n == IOStatus.INTERRUPTED && isOpen());
+                } finally {
+                    endConnect(blocking, (n > 0));
+                }
+                assert IOStatus.check(n);
+                //连接成功
+                return n > 0;
+            } finally {
+                writeLock.unlock();
+            }
+        } finally {
+            readLock.unlock();
+        }
+    } catch (IOException ioe) {
+        // connect failed, close the channel
+        close();
+        throw SocketExceptions.of(ioe, isa);
+    }
+}
+```
+
+这里的使用模式和之前 `AbstractInterruptibleChannel`中基本一致，同时这里是非阻塞模式，无须关注连接过程中打断的场景。
+
+```java
+//sun.nio.ch.SocketChannelImpl#beginConnect
+private void beginConnect(boolean blocking, InetSocketAddress isa)
+    throws IOException
+{   //只有阻塞的时候才会进入begin
+    if (blocking) {
+        // set hook for Thread.interrupt
+        //支持线程中断，通过设置当前线程的Interruptible blocker属性实现
+        begin();
+    }
+    synchronized (stateLock) {
+        //默认为open, 除非调用了close方法
+        ensureOpen();
+        //检查连接状态
+        int state = this.state;
+        if (state == ST_CONNECTED)
+            throw new AlreadyConnectedException();
+        if (state == ST_CONNECTIONPENDING)
+            throw new ConnectionPendingException();
+        //断言当前的状态是否是未连接状态，如果是，赋值表示正在连接中
+        assert state == ST_UNCONNECTED;
+        //表示正在连接中
+        this.state = ST_CONNECTIONPENDING;
+        //只有未绑定本地地址也就是说未调用bind方法才执行,
+        //该方法在ServerSocketChannel中也见过
+        if (localAddress == null)
+            NetHooks.beforeTcpConnect(fd, isa.getAddress(), isa.getPort());
+        remoteAddress = isa;
+
+        if (blocking) {
+            // record thread so it can be signalled if needed
+            readerThread = NativeThread.current();
+        }
+    }
+}
+//sun.nio.ch.SocketChannelImpl#endConnect
+// 调用 endConnect(blocking, (n > 0));
+private void endConnect(boolean blocking, boolean completed)
+    throws IOException {
+    endRead(blocking, completed);
+    //当上面代码中n>0，说明连接成功，更新状态为ST_CONNECTED
+    if (completed) {
+        synchronized (stateLock) {
+            if (state == ST_CONNECTIONPENDING) {
+                localAddress = Net.localAddress(fd);
+                state = ST_CONNECTED;
+            }
+        }
+    }
+}
+//sun.nio.ch.SocketChannelImpl#endRead
+private void endRead(boolean blocking, boolean completed)
+    throws AsynchronousCloseException {   
+    //当阻塞状态下的话，才进入
+    if (blocking) {
+        synchronized (stateLock) {
+            readerThread = 0;
+            // notify any thread waiting in implCloseSelectableChannel
+            if (state == ST_CLOSING) {
+                stateLock.notifyAll();
+            }
+        }
+        //和begin成对出现，当线程中断时，抛出ClosedByInterruptException
+        // remove hook for Thread.interrupt
+        end(completed);
+    }
+}
+```
+
+对于阻塞连接来说，可以一直等待连接完成；而对于非阻塞连接，那就需要使用 `finishConnect`来检查连接是否完成了
+
+```java
+//java.net.Socket#Socket
+private Socket(SocketAddress address, SocketAddress localAddr,
+                boolean stream) throws IOException {
+    setImpl();
+
+    // backward compatibility
+    if (address == null)
+        throw new NullPointerException();
+
+    try {
+        createImpl(stream);
+        if (localAddr != null)
+            bind(localAddr);
+	// 连接远程地址
+        connect(address);
+    } catch (IOException | IllegalArgumentException | SecurityException e) {
+        try {
+            close();
+        } catch (IOException ce) {
+            e.addSuppressed(ce);
+        }
+        throw e;
+    }
+}
+```
+
+上面这里是在 `Socket`构造函数中做的，其 `connect`方法由 `SocketAdaptor`实现。而一般我们使用 `SocketChannel#open`方法来获取 `SocketChannel`，然后通过 `SocketChannel#socket`方法得到 `SocketAdaptor`对象实例，这里通过 `SocketAdaptor#connect`方法来看其实现
+
+```java
+//sun.nio.ch.SocketAdaptor#connect
+public void connect(SocketAddress remote) throws IOException {
+    connect(remote, 0);
+}
+
+public void connect(SocketAddress remote, int timeout) throws IOException {
+    // ...
+
+    synchronized (sc.blockingLock()) {
+        if (!sc.isBlocking())
+            throw new IllegalBlockingModeException();
+
+        try {
+            //未设定超时则会一直在此等待直到连接或者出现异常
+            // no timeout
+            if (timeout == 0) {
+                sc.connect(remote);
+                return;
+            }
+            //有超时设定，则会将Socket给设定为非阻塞
+            // timed connect
+            sc.configureBlocking(false);
+            try {
+                if (sc.connect(remote))
+                    return;
+            } finally {
+                try {
+ 		    // 超时之后这里恢复为阻塞状态
+                    sc.configureBlocking(true);
+                } catch (ClosedChannelException e) { }
+            }
+
+            long timeoutNanos = NANOSECONDS.convert(timeout, MILLISECONDS);
+            long to = timeout;
+            for (;;) {
+                //通过计算超时时间，在允许的时间范围内无限循环来进行连接，
+                //如果超时，则关闭这个Socket
+                long startTime = System.nanoTime();
+                if (sc.pollConnected(to)) {
+		    // 这里检查连接状态
+                    boolean connected = sc.finishConnect();
+                    //看下文解释
+                    assert connected;
+                    break;
+                }
+                // ...
+            }
+
+        } catch (Exception x) {
+            Net.translateException(x, true);
+        }
+    }
+
+}
+```
+
+下面看具体 `finishConnect`逻辑
+
+```java
+//sun.nio.ch.SocketChannelImpl#finishConnect
+@Override
+public boolean finishConnect() throws IOException {
+    try {
+        readLock.lock();
+        try {
+            writeLock.lock();
+            try {
+                // no-op if already connected
+                if (isConnected())
+                    return true;
+
+                boolean blocking = isBlocking();
+                boolean connected = false;
+                try {
+                    beginFinishConnect(blocking);
+                    int n = 0;
+                    if (blocking) {
+                        do {
+                            //阻塞情况下，第二个参数传入true
+                            n = checkConnect(fd, true);
+                        } while ((n == 0 || n == IOStatus.INTERRUPTED) && isOpen());
+                    } else {
+                        //非阻塞情况下，第二个参数传入false
+                        n = checkConnect(fd, false);
+                    }
+                    connected = (n > 0);
+                } finally {
+                    endFinishConnect(blocking, connected);
+                }
+                assert (blocking && connected) ^ !blocking;
+                return connected;
+            } finally {
+                writeLock.unlock();
+            }
+        } finally {
+            readLock.unlock();
+        }
+    } catch (IOException ioe) {
+        // connect failed, close the channel
+        close();
+        throw SocketExceptions.of(ioe, remoteAddress);
+    }
+}
+//sun.nio.ch.SocketChannelImpl#checkConnect
+private static native int checkConnect(FileDescriptor fd, boolean block)
+    throws IOException;
+```
+
+这里最终调用了一个 `native`方法，其实底层是使用 `poll`方法来查询 `socket`状态的，从而判断是否建立连接成功。由于在非堵塞模式下，`finishConnect `方法会立即返回，根据此处 `sun.nio.ch.SocketAdaptor#connect `的处理，其使用循环的方式判断连接是否建立，在我们的nio编程中，这个是不建议的，属于半成品，而是建议注册到 `Selector `，通过 `ops=OP_CONNECT `获取连接完成的 `SelectionKey `,然后调用 `finishConnect`完成连接的建立；
+
+## 3.5 Selector
+
+### 3.5.1 SelectionKey
+
+`Selector`是通过 `SelectionKey`来管理 `Channel`的状态的。可以使用通过 `SelectableChannel#register`将 `channel`注册到 `Selector`上面，以便进行管理。
+
+```java
+//java.nio.channels.spi.AbstractSelectableChannel#register
+public final SelectionKey register(Selector sel, int ops, Object att)
+    throws ClosedChannelException {   
+    // ...
+    synchronized (regLock) {
+       // ...
+        synchronized (keyLock) {
+           // ...
+            SelectionKey k = findKey(sel);
+            if (k != null) {
+                k.attach(att);
+		// 如果key已经存在，那么只是修改状态值
+                k.interestOps(ops);
+            } else {
+                // New registration
+                k = ((AbstractSelector)sel).register(this, ops, att);
+                addKey(k);
+            }
+            return k;
+        }
+    }
+}
+//sun.nio.ch.SelectorImpl#register
+protected final SelectionKey register(AbstractSelectableChannel ch,
+                int ops, Object attachment) {
+        if (!(ch instanceof SelChImpl))
+            throw new IllegalSelectorException();
+        SelectionKeyImpl k = new SelectionKeyImpl((SelChImpl)ch, this);
+        k.attach(attachment);
+        synchronized (publicKeys) {
+            implRegister(k);
+        }
+        k.interestOps(ops);
+        return k;
+}
+```
+
+下面看下状态值的修改
+
+```java
+//sun.nio.ch.SelectionKeyImpl
+public final class SelectionKeyImpl extends AbstractSelectionKey {
+    private static final VarHandle INTERESTOPS =
+            ConstantBootstraps.fieldVarHandle(
+                    MethodHandles.lookup(),
+                    "interestOps",
+                    VarHandle.class,
+                    SelectionKeyImpl.class, int.class);
+
+    private final SelChImpl channel;
+    private final SelectorImpl selector;
+
+    private volatile int interestOps;
+    private volatile int readyOps;
+
+    // registered events in kernel, used by some Selector implementations
+    private int registeredEvents;
+
+    // index of key in pollfd array, used by some Selector implementations
+    private int index;
+
+    SelectionKeyImpl(SelChImpl ch, SelectorImpl sel) {
+        channel = ch;
+        selector = sel;
+    }
+   ...
+}
+public SelectionKey interestOps(int ops) {
+        ensureValid();
+        return nioInterestOps(ops);
+}
+public SelectionKey nioInterestOps(int ops) {
+        if ((ops & ~channel().validOps()) != 0)
+            throw new IllegalArgumentException();
+        channel.translateAndSetInterestOps(ops, this);
+        interestOps = ops;
+        return this;
+}
+```
+
+不同的 `channel`有各自不同的功能，其支持的操作也是不同的，各自提供了 `validOps`进行校验
+
+```java
+//java.nio.channels.SocketChannel#validOps
+public final int validOps() {
+    //1|4|8  1101
+    return (SelectionKey.OP_READ
+            | SelectionKey.OP_WRITE
+            | SelectionKey.OP_CONNECT);
+}
+//java.nio.channels.ServerSocketChannel#validOps
+public final int validOps() {
+    // 16
+    return SelectionKey.OP_ACCEPT;
+}
+//java.nio.channels.DatagramChannel#validOps
+public final int validOps() {
+    // 1|4
+    return (SelectionKey.OP_READ
+            | SelectionKey.OP_WRITE);
+}
+```
+
+注意：`SelectionKey`是线程安全的。
+
+
+最后注意：我们一般在写相关服务的时候，一般会获取所有准备好了的 `key`，如 `selector.selectedKeys()`，从这里可以看到时获取到所有准备好的 `key `，然后进行迭代处理，在处理的时候会将 `key`移除 `iter.remove`，但是注意，`selector`中还有一个 `keys`的集合，这个集合中的 `key`除非解除注册，不然是不会删除的。
+
+
+**interestOps与readyOps**
+
+`interestOps`表示当前 `key`需要让 `selector`监听的事件，比如读写事件，此时值为5，如果此时从客户端过来的可读请求，那么在 `selector.select()`时 `readyOps`则会设置为4，表示此时只是可写而不可读；否则 `readyOps`为5，表示可读写。
+
+### 3.5.2 open
+
+```java
+//java.nio.channels.Selector#open
+public static Selector open() throws IOException {
+    return SelectorProvider.provider().openSelector();
+}
+```
+
+这里通过 `SelectorProvider`来提供相关 `open`功能，根据系统不同，提供不同的 `SelectorProvider`。以 `windows`为例
+
+```java
+//sun.nio.ch.WindowsSelectorImpl#WindowsSelectorImpl
+WindowsSelectorImpl(SelectorProvider sp) throws IOException {
+    super(sp);
+    pollWrapper = new PollArrayWrapper(INIT_CAP);
+    wakeupPipe = Pipe.open();
+    wakeupSourceFd = ((SelChImpl)wakeupPipe.source()).getFDVal();
+
+    // Disable the Nagle algorithm so that the wakeup is more immediate
+    SinkChannelImpl sink = (SinkChannelImpl)wakeupPipe.sink();
+    (sink.sc).socket().setTcpNoDelay(true);
+    wakeupSinkFd = ((SelChImpl)sink).getFDVal();
+
+    pollWrapper.addWakeupSocket(wakeupSourceFd, 0);
+}
+```
+
+这里就是获得了一个 `Selector`，而被打开后，直到 `Pipe`关闭才会关闭
+
+```java
+//java.nio.channels.spi.AbstractSelector#close
+public final void close() throws IOException {
+    boolean open = selectorOpen.getAndSet(false);
+    if (!open)
+        return;
+    implCloseSelector();
+}
+//sun.nio.ch.SelectorImpl#implCloseSelector
+@Override
+public final void implCloseSelector() throws IOException {
+    wakeup();
+    synchronized (this) {
+        implClose();
+        synchronized (publicSelectedKeys) {
+            // ...
+        }
+    }
+}
+//sun.nio.ch.WindowsSelectorImpl#implClose
+@Override
+protected void implClose() throws IOException {
+    assert !isOpen();
+    assert Thread.holdsLock(this);
+
+    // prevent further wakeup
+    synchronized (interruptLock) {
+        interruptTriggered = true;
+    }
+
+    wakeupPipe.sink().close();
+    wakeupPipe.source().close();
+    pollWrapper.free();
+
+    // Make all remaining helper threads exit
+    for (SelectThread t: threads)
+            t.makeZombie();
+    startLock.startThreads();
+}
+```
+
+这里相关细节就不做过多深究了，主要关注一个问题，就是 `Selector.select`是一个阻塞方法，那一个被阻塞在其上的线程怎样才能被唤醒呢？
+
+* 有数据可读/写，或抛出异常
+* 阻塞时间到，即超时。这个可以排出，因为阻塞情况下超时时间无法修改
+* 收到一个非阻塞的信号，如 `kill`或 `pthread-kill`发出
+
+### 3.5.3 管理SelectionKey
+
+**注册**
+
+```java
+protected final SelectionKey register(AbstractSelectableChannel ch,
+            int ops, Object attachment) {
+        if (!(ch instanceof SelChImpl))
+            throw new IllegalSelectorException();
+        SelectionKeyImpl k = new SelectionKeyImpl((SelChImpl)ch, this);
+        k.attach(attachment);
+        synchronized (publicKeys) {
+            implRegister(k);
+        }
+        k.interestOps(ops);
+        return k;
+}
+```
+
+这里其实就是创建一个 `key`，然后将 `key`添加到缓存中去。
+
+**选择**
+
+```java
+// sun.nio.ch.SelectorImpl
+public int select(long timeout)
+    throws IOException {
+    if (timeout < 0)
+        throw new IllegalArgumentException("Negative timeout");
+    return lockAndDoSelect((timeout == 0) ? -1 : timeout);
+}
+public int select() throws IOException {
+    return select(0);
+}
+public int selectNow() throws IOException {
+    return lockAndDoSelect(0);
+}
+private int lockAndDoSelect(long timeout) throws IOException {
+        synchronized (this) {
+            if (!isOpen())
+                throw new ClosedSelectorException();
+            synchronized (publicKeys) {
+                synchronized (publicSelectedKeys) {
+                    return doSelect(timeout);
+                }
+            }
+        }
+}
+```
+
+这里不同系统doSelect方法有所不同，具体逻辑不再深究
+
+# 4. Buffer
+
+经过包装的 `Buffer`是 `Java NIO`中对于缓冲区的抽象。在 `Java`有8中基本类型：`byte、short、int、long、float、double、char、boolean `，除了 `boolean `类型外，其他的类型都有对应的 `Buffer `具体实现，可见，`Buffer `是一个用于存储特定基本数据类型的容器。再加上数据时有序存储的，而且 `Buffer `有大小限制，所以，`Buffer`可以说是特定基本数据类型的线性存储有限的序列。
+
+> capacity - 容量
+>
+> position
+>
+> - 写入 - 表示当前位置，初始值为0，最大值为 capacity - 1
+> - 读取 - 表示当前读取的起始位置，当从写模式切换到读模式时，会被置为0
+>
+> limit
+>
+> - 写模式 - limit表示还可以写入多少数据，表示当前可用的容量
+> - 读模式 - limit表示能多到多少数据，当从写模式切换到读模式时，limit会被置为写模式下的position值，表示能读到的最大数据量
+>
+> mark - 相当于打标，初始值为-1。当调用reset时，当前position会被置为mark所在的位置。其值不能为负数，也不能大于position。如果对其设置了相关值，那么在position或者limit调整为小于mark值时需要将其丢弃，否则则调用reset时会报异常
+
+基本用法
+
+```java
+RandomAccessFile aFile = new RandomAccessFile("data/nio-data.txt", "rw");
+FileChannel inChannel = aFile.getChannel();
+
+//设置初始容量为 48 byte
+ByteBuffer buf = ByteBuffer.allocate(48);
+
+// 往buffer中写入数据
+int bytesRead = inChannel.read(buf);
+while (bytesRead != -1) {
+  // 转换读写模式
+  buf.flip();
+  // 如果buffer中有可读数据
+  while(buf.hasRemaining()){
+      // 读取数据
+      System.out.print((char) buf.get());
+  }
+
+  buf.clear(); //清理
+  bytesRead = inChannel.read(buf);
+}
+aFile.close();
+```
+
+## 4.1 分配
+
+```java
+//java.nio.ByteBuffer#allocate
+// 堆缓冲区
+public static ByteBuffer allocate(int capacity) {
+    if (capacity < 0)
+        throw createCapacityException(capacity);
+    return new HeapByteBuffer(capacity, capacity);
+}
+//java.nio.ByteBuffer#allocateDirect
+// 堆外缓冲区
+public static ByteBuffer allocateDirect(int capacity) {
+    return new DirectByteBuffer(capacity);
+}
+```
+
+这里如果使用堆缓冲区，那么很简单，其实就是操作数组，不做深究。而如果使用堆外缓冲，那么则较为复杂。
+
+这里要注意：`Buffer`没有做相关锁保护，所以不是线程安全的。
+
+## 4.2 模式
+
+本身是没这个说法的，只是按照我们自己的操作习惯，我们将 `Buffer`分为两种工作模式，一种是接收数据模式，一种是输出数据模式。我们可以通过 `Buffer`提供的 `flip`等操作来切换 `Buffer`的工作模式。
+
+```java
+// 初始情况
+ByteBuffer.allocate(10);
+// mark=-1, position=0, limit=capacity=10
+
+// 存入5个字节
+// mark=-1, position=5, limit=capacity=10
+
+// flip:从写模式切换到读模式
+// mark=-1, position=0, limit=5, capacity=10
+
+// 如果要从读模式切换到写模式可以使用clear或者compact方法
+//java.nio.Buffer#clear
+// 使用之后buffer和初始化之后的状态一致了
+public Buffer clear() {
+    position = 0;
+    limit = capacity;
+    mark = -1;
+    return this;
+}
+//java.nio.HeapByteBuffer#compact
+public ByteBuffer compact() {
+    System.arraycopy(hb, ix(position()), hb, ix(0), remaining());
+    position(remaining());
+    limit(capacity());
+    discardMark();
+    return this;
+}
+//java.nio.ByteBuffer#position
+ByteBuffer position(int newPosition) {
+    super.position(newPosition);
+    return this;
+}
+//java.nio.Buffer#position(int)
+public Buffer position(int newPosition) {
+    if (newPosition > limit | newPosition < 0)
+        throw createPositionException(newPosition);
+    position = newPosition;
+    if (mark > position) mark = -1;
+    return this;
+}
+//java.nio.ByteBuffer#limit
+ByteBuffer limit(int newLimit) {
+    super.limit(newLimit);
+    return this;
+}
+//java.nio.Buffer#limit(int)
+public Buffer limit(int newLimit) {
+    if (newLimit > capacity | newLimit < 0)
+        throw createLimitException(newLimit);
+    limit = newLimit;
+    if (position > limit) position = limit;
+    if (mark > limit) mark = -1;
+    return this;
+}
+//java.nio.Buffer#discardMark
+final void discardMark() {  
+        mark = -1;
+}
+```
+
+这里要注意 `compact`方法，从读模式切换到写模式的情况
+
+```java
+// 初始情况，这表示当前读数据读到位置2
+// mark=-1, position=2, limit=5, capacity=10
+
+// 调用后，也就是从上次读的截止地方开始写
+// mark=-1, position=3, limit=capacity=10
+```
+
+## 4.3 其他方法
+
+**rewind**
+
+```java
+//java.nio.Buffer#rewind
+public Buffer rewind() {
+    position = 0;
+    mark = -1;
+    return this;
+}
+```
+
+这里只是将 `position`和 `mark`恢复为初始化的值，其他值不变
+
+**duplicate**
+
+在 `jdk9`中新增的方法，就是创建一个和原始 `buffer `一样的新 `buffer `，其中一个 `buffer`的数据变化会反应到另外一个 `buffer`上面，但是相关的 `position、limit、mark`都是独立的。同时如果原始 `Buffer `是只读的（即 `HeapByteBufferR `），那么新 `Buffer `也是只读的。如果原始 `Buffer `是 `DirectByteBuffer `，那新 `Buffer `也是 `DirectByteBuffer`。
+
+```java
+//java.nio.HeapByteBuffer#duplicate
+public ByteBuffer duplicate() {
+    return new HeapByteBuffer(hb,
+                                this.markValue(),
+                                this.position(),
+                                this.limit(),
+                                this.capacity(),
+                                offset);
+}
+//java.nio.HeapByteBufferR#duplicate
+public ByteBuffer duplicate() {
+    return new HeapByteBufferR(hb,
+                                this.markValue(),
+                                this.position(),
+                                this.limit(),
+                                this.capacity(),
+                                offset);
+}
+//java.nio.DirectByteBuffer#duplicate
+public ByteBuffer duplicate() {
+    return new DirectByteBuffer(this,
+                                    this.markValue(),
+                                    this.position(),
+                                    this.limit(),
+                                    this.capacity(),
+                                    0);
+}
+
+```
+
+从 `HeapByteBuffer`角度来说，对于**hb** 作为一个数组对象，属于对象引用传递，即新老 `Buffer`共用了同一个字节数组对象。无论谁操作，都会改变另一个。
+从 `DirectByteBuffer`角度来说，直接内存看重的是地址操作，所以，其在创建这个新 `Buffer`的时候传入的是原始 `Buffer`的引用，进而可以获取到相关地址。
+
+**asReadOnlyBuffer**
+
+生成一个只读的缓冲区。其 `isReadOnly()`函数 将会返回true 。 对这一只读缓冲区调用 `put()`操作，会导致 `ReadOnlyBufferException`异常。
+
+**slice**
+
+就是 **切片** ，就是分割 `ByteBuffer`。即创建一个从原始 `ByteBuffer`的当前位置（`position`）开始的新 `ByteBuffer`，并且其容量是原始 `ByteBuffer`的剩余消费元素数量（ `limit-position`）。这个新 `ByteBuffer`与原始 `ByteBuffer`共享一段数据元素子序列，也就是设定一个offset值，这样就可以将一个相对数组第三个位置的元素看作是起点元素，此时新 `ByteBuffer`的 `position`就是0，读取的还是所传入这个 `offset`的所在值。分割出来的 `ByteBuffer`也会继承只读和直接属性。
+
+我们来看相关源码:
+
+```java
+//java.nio.HeapByteBuffer#slice()
+public ByteBuffer slice() {
+    return new HeapByteBuffer(hb,
+                                -1,
+                                0,
+                                this.remaining(),
+                                this.remaining(),
+                                this.position() + offset);
+}
+```

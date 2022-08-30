@@ -29,6 +29,195 @@ Reactor模式通过一个或多个输入同时传递给服务器的模式，服�
 * 性能问题，只有一个线程，无法支撑大量请求
 * 可靠性问题，一旦线程异常或进入死循环，会导致整个系统不可用，造成节点障碍
 
+这里通过一个简单的例子进行说明
+
+```java
+// 服务端
+package io.netty.example.mynio;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
+import java.util.Set;
+
+/**
+ * Reactor-单线程
+ **/
+public class ReactorNioServer {
+
+    public void start(int port) throws IOException {
+        ServerSocketChannel serverChannel = ServerSocketChannel.open();
+        serverChannel.configureBlocking(false);
+        serverChannel.bind(new InetSocketAddress(port));
+        Selector selector = Selector.open();
+        // 将ServerSocket注册到开关上面，表明接受外部连接
+        serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+
+        ByteBuffer writeBuffer = ByteBuffer.allocate(32);
+        ByteBuffer readBuffer = ByteBuffer.allocate(32);
+        System.out.println("server started");
+        for (; ; ) {
+            try {
+                // 这里是选择ready的key
+                selector.select();
+            } catch (IOException ex) {
+                ex.printStackTrace();
+                break;
+            }
+            System.out.println("some key ready");
+            Set<SelectionKey> readyKeys = selector.selectedKeys();
+            Iterator<SelectionKey> iter = readyKeys.iterator();
+            while (iter.hasNext()) {
+                SelectionKey key = iter.next();
+                iter.remove();
+                try {
+                    // 检查事件是否是一个新的已经就绪可以被接受的连接
+                    if (key.isAcceptable()) {
+                        // 一开始selector上面注册的是服务端的channel
+                        ServerSocketChannel server = (ServerSocketChannel) key.channel();
+                        SocketChannel client = server.accept();
+                        // 将新的socket设置为非阻塞
+                        client.configureBlocking(false);
+                        // 这里将客户端channel注册到selector上
+                        // 这里可以看到和阻塞IO的区别，就是以前阻塞等待变成了注册事件，
+                        // 这样就可以一个socket监听多个socket连接
+                        client.register(selector, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+
+                        ByteBuffer buffer = ByteBuffer.allocate(1024);
+                        buffer.put("connect succeed\r\n".getBytes(StandardCharsets.UTF_8));
+                        buffer.flip();
+                        client.write(buffer);
+                    }
+
+                    if (key.isReadable()) {
+                        // 获取该选择器上的“读就绪”状态的通道
+                        SocketChannel client = (SocketChannel) key.channel();
+                        readBuffer.clear();
+                        int len;
+                        StringBuilder content = new StringBuilder();
+                        while ((len = client.read(readBuffer)) > 0) {
+                            readBuffer.flip();
+                            content.append(new String(readBuffer.array(), 0, len,
+                                StandardCharsets.UTF_8));
+                            readBuffer.clear();
+                        }
+                        // 当读不到数据时len=0，当客户端关闭时len=-1
+                        if (len < 0) {
+                            System.out.println("client closed");
+                            client.close();
+                            key.cancel();
+                        } else {
+                            System.out.println("accepted data: " + content);
+                        }
+                        key.interestOps(SelectionKey.OP_WRITE);
+                    }
+
+                    if (key.isWritable()) {
+                        SocketChannel client = (SocketChannel) key.channel();
+                        writeBuffer.clear();
+                        // 这里简单做了
+                        // 在读取完client数据之后暂时都统一写入一个字符串
+                        writeBuffer.put("read success\r\n".getBytes(StandardCharsets.UTF_8));
+                        writeBuffer.flip();
+                        client.write(writeBuffer);
+                        key.interestOps(SelectionKey.OP_READ);
+                    }
+                } catch (IOException ex) {
+                    try {
+                        key.channel().close();
+                        key.cancel();
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) throws IOException {
+        ReactorNioServer server = new ReactorNioServer();
+        server.start(8888);
+    }
+}
+
+
+// 客户端
+package io.netty.example.mynio;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
+import java.util.Scanner;
+
+/**
+ * NIO客户端
+ *
+ * @author YJ
+ * @date 2022/8/26
+ **/
+public class NIOClient {
+
+
+    public void start(String ip, int port) {
+        SocketChannel client = null;
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
+        try {
+            client = SocketChannel.open();
+            client.connect(new InetSocketAddress(ip, port));
+            Scanner reader = new Scanner(System.in);
+            for (; ; ) {
+                // 简单做，就读取一行
+                String inputLine = reader.nextLine();
+                if (inputLine.equalsIgnoreCase("exit")) {
+                    break;
+                }
+                buffer.clear();
+                buffer.put(inputLine.getBytes(StandardCharsets.UTF_8));
+                buffer.flip();
+                client.write(buffer);
+                buffer.clear();
+
+                int len = client.read(buffer);
+                if (len == -1) {
+                    break;
+                }
+                buffer.flip();
+                byte[] datas = new byte[buffer.remaining()];
+                buffer.get(datas);
+                System.out.println("from server data: " +
+                    new String(datas, StandardCharsets.UTF_8));
+                buffer.clear();
+            }
+
+        } catch (Exception e) {
+            // ignore
+        } finally {
+            if (client != null) {
+                try {
+                    client.close();
+                } catch (IOException e) {
+                    // ignore
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        NIOClient client = new NIOClient();
+        client.start("127.0.0.1", 8888);
+    }
+}
+```
+
+从这里可以看到，虽然使用 `selector`进行了连接管理和分发，但是都是在同一个线程中执行的。每次对于准备好了的 `key`都是循环处理，对于多个读写的channel会存在等待的问题，下面使用多线程模型进行优化。
+
 ### 1.2.2 多线程模型
 
 ![25](img/25.png)
@@ -36,6 +225,167 @@ Reactor模式通过一个或多个输入同时传递给服务器的模式，服�
 这里和单线程模型一样有一个专门的NIO线程---acceptor用于监听连接请求。区别在于具体的处理可以使用标准的线程池，这里要注意，每一个请求的业务处理中包含 `read， 业务处理， send`，这里使用同一个线程。也就是一个NIO线程可以同时处理N条请求链路，但是一个链路请求之对应一个NIO线程，防止并发操作问题。
 
 在绝大多数场景下，Reactor多线程模型都可以满足性能需求；但是，在极特殊应用场景中，一个NIO线程负责监听和处理所有的客户端连接可能会存在性能问题。例如百万客户端并发连接，或者服务端需要对客户端的握手信息进行安全认证，认证本身非常损耗性能。这类场景下，单独一个Acceptor线程可能会存在性能不足问题，为了解决性能问题，产生了第三种Reactor线程模型--主从Reactor多线程模型。
+
+```java
+package io.netty.example.mynio;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/**
+ * Reactor-多线程
+ **/
+public class MultiReactorNioServer {
+
+    private final ExecutorService pool = Executors.newFixedThreadPool(10);
+
+    public void start(int port) throws IOException {
+        ServerSocketChannel serverChannel = ServerSocketChannel.open();
+        serverChannel.configureBlocking(false);
+        serverChannel.bind(new InetSocketAddress(port));
+        Selector selector = Selector.open();
+        // 将ServerSocket注册到开关上面，表明接受外部连接
+        serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+
+        System.out.println("server started");
+        for (; ; ) {
+            try {
+                if (selector.select() <= 0) {
+                    continue;
+                }
+            } catch (IOException ex) {
+                ex.printStackTrace();
+                break;
+            }
+            System.out.println("some key ready");
+            Set<SelectionKey> readyKeys = selector.selectedKeys();
+            Iterator<SelectionKey> iter = readyKeys.iterator();
+            while (iter.hasNext()) {
+                SelectionKey key = iter.next();
+                iter.remove();
+                try {
+                    // 检查事件是否是一个新的已经就绪可以被接受的连接
+                    if (key.isAcceptable()) {
+                        // 一开始selector上面注册的是服务端的channel
+                        ServerSocketChannel server = (ServerSocketChannel) key.channel();
+                        SocketChannel client = server.accept();
+                        // 将新的socket设置为非阻塞
+                        client.configureBlocking(false);
+                        // 这里将客户端channel注册到selector上
+                        // 这里可以看到和阻塞IO的区别，就是以前阻塞等待变成了注册事件，
+                        // 这样就可以一个socket监听多个socket连接
+                        client.register(selector, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+
+                        ByteBuffer buffer = ByteBuffer.allocate(1024);
+                        buffer.put("connect succeed\r\n".getBytes(StandardCharsets.UTF_8));
+                        buffer.flip();
+                        client.write(buffer);
+                    }
+
+                    if (key.isReadable() || key.isWritable()) {
+                        pool.submit(new Handler(selector, (SocketChannel) key.channel(), key));
+                    }
+                } catch (IOException ex) {
+                    try {
+                        key.channel().close();
+                        key.cancel();
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) throws IOException {
+        MultiReactorNioServer server = new MultiReactorNioServer();
+        server.start(8888);
+    }
+}
+
+package io.netty.example.mynio;
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Callable;
+
+/**
+ * 处理类
+ **/
+public class Handler implements Callable {
+
+    private final Selector selector;
+
+    private final SocketChannel socketChannel;
+
+    private final SelectionKey key;
+
+    ByteBuffer writeBuffer = ByteBuffer.allocate(32);
+    ByteBuffer readBuffer = ByteBuffer.allocate(32);
+
+    public Handler(Selector selector, SocketChannel socketChannel, SelectionKey key) {
+        this.selector = selector;
+        this.socketChannel = socketChannel;
+        this.key = key;
+    }
+
+    @Override
+    public Object call() throws Exception {
+        if (!key.isReadable() && !key.isWritable()) {
+            return null;
+        }
+
+        if (key.isReadable()) {
+            // 获取该选择器上的“读就绪”状态的通道
+            SocketChannel client = (SocketChannel) key.channel();
+            readBuffer.clear();
+            int len;
+            StringBuilder content = new StringBuilder();
+            while ((len = client.read(readBuffer)) > 0) {
+                readBuffer.flip();
+                content.append(new String(readBuffer.array(), 0, len, StandardCharsets.UTF_8));
+                readBuffer.clear();
+            }
+            // 当读不到数据时len=0，当客户端关闭时len=-1
+            if (len < 0) {
+                System.out.println("client closed");
+                client.close();
+                key.cancel();
+            } else {
+                System.out.println("accepted data: " + content);
+            }
+            key.interestOps(SelectionKey.OP_WRITE);
+        }
+
+        if (key.isWritable()) {
+            SocketChannel client = (SocketChannel) key.channel();
+            writeBuffer.clear();
+            // 这里简单做了
+            // 在读取完client数据之后暂时都统一写入一个字符串
+            writeBuffer.put("read success\r\n".getBytes(StandardCharsets.UTF_8));
+            writeBuffer.flip();
+            client.write(writeBuffer);
+            key.interestOps(SelectionKey.OP_READ);
+        }
+
+        return null;
+    }
+}
+```
+
+这里可以看到，我们将具体的读写操作放在了线程池中进行处理，这样读写操作就不存在等待的情况。但是我们可以发现，接收客户端连接请求和处理连接请求的具体逻辑还是在一个线程中。
+
 
 ### 1.2.3 主从多线程模型
 
@@ -47,7 +397,185 @@ Acceptor线程池只用于客户端的登录、握手和安全认证，一旦链
 
 第三种模型比起第二种模型，是将Reactor分成两部分，mainReactor负责监听server socket，accept新连接，并将建立的socket分派给subReactor。subReactor负责多路分离已连接的socket，读写网络数据，对业务处理功能，其扔给worker线程池完成。通常，subReactor个数上可与CPU个数等同。
 
-### 1.2.4 netty线程模型
+```java
+package io.netty.example.mynio;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Reactor-主从多线程-主reactor
+ *
+ **/
+public class MasterReactorNioServer {
+
+    private List<SlaveReactorNioServer> slaves = new ArrayList<>(
+        Runtime.getRuntime().availableProcessors()
+    );
+
+    public void start(int port) throws IOException {
+        ServerSocketChannel serverChannel = ServerSocketChannel.open();
+        serverChannel.configureBlocking(false);
+        serverChannel.bind(new InetSocketAddress(port));
+        Selector selector = Selector.open();
+        // 将ServerSocket注册到开关上面，表明接受外部连接
+        serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+
+        System.out.println("server started");
+        for (; ; ) {
+            try {
+                if (selector.select() < 0) {
+                    continue;
+                }
+            } catch (IOException ex) {
+                ex.printStackTrace();
+                break;
+            }
+            System.out.println("some key ready");
+            Set<SelectionKey> readyKeys = selector.selectedKeys();
+            Iterator<SelectionKey> iter = readyKeys.iterator();
+            while (iter.hasNext()) {
+                SelectionKey key = iter.next();
+                iter.remove();
+                SlaveReactorNioServer slave = new SlaveReactorNioServer();
+                try {
+                    // 检查事件是否是一个新的已经就绪可以被接受的连接
+                    if (key.isAcceptable()) {
+                        // 一开始selector上面注册的是服务端的channel
+                        ServerSocketChannel server = (ServerSocketChannel) key.channel();
+                        SocketChannel client = server.accept();
+                        // 将新的socket设置为非阻塞
+                        client.configureBlocking(false);
+
+                        slave.register(client);
+                        slaves.add(slave);
+                    }
+                } catch (IOException ex) {
+                    try {
+                        slaves.remove(slave);
+                        key.channel().close();
+                        key.cancel();
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) throws IOException {
+        MasterReactorNioServer server = new MasterReactorNioServer();
+        server.start(8888);
+    }
+}
+
+
+package io.netty.example.mynio;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/**
+ * Reactor-主从多线程-从reactor
+ **/
+public class SlaveReactorNioServer {
+
+    private Selector selector;
+
+    private final ByteBuffer writeBuffer = ByteBuffer.allocate(32);
+    private final ByteBuffer readBuffer = ByteBuffer.allocate(32);
+
+    private static ExecutorService pool = Executors.newFixedThreadPool(
+        2 * Runtime.getRuntime().availableProcessors());
+
+    public void register(SocketChannel socketChannel) throws ClosedChannelException {
+        socketChannel.register(selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+    }
+
+    public SlaveReactorNioServer() throws IOException {
+        // 这里新开一个selector
+        selector = Selector.open();
+        this.select();
+    }
+
+    public void wakeup() {
+        this.selector.wakeup();
+    }
+
+    public void select() {
+        pool.submit(() -> {
+            while (true) {
+                if (selector.select(500) <= 0) {
+                    continue;
+                }
+                Set<SelectionKey> keys = selector.selectedKeys();
+                Iterator<SelectionKey> iterator = keys.iterator();
+                while (iterator.hasNext()) {
+                    SelectionKey key = iterator.next();
+                    iterator.remove();
+
+                    if (key.isReadable()) {
+                        // 获取该选择器上的“读就绪”状态的通道
+                        SocketChannel client = (SocketChannel) key.channel();
+                        readBuffer.clear();
+                        int len;
+                        StringBuilder content = new StringBuilder();
+                        while ((len = client.read(readBuffer)) > 0) {
+                            readBuffer.flip();
+                            content.append(
+                                new String(readBuffer.array(), 0, len, StandardCharsets.UTF_8));
+                            readBuffer.clear();
+                        }
+                        // 当读不到数据时len=0，当客户端关闭时len=-1
+                        if (len < 0) {
+                            System.out.println("client closed");
+                            client.close();
+                            key.cancel();
+                        } else {
+                            System.out.println("accepted data: " + content);
+                        }
+                        key.interestOps(SelectionKey.OP_WRITE);
+                    }
+
+                    if (key.isWritable()) {
+                        SocketChannel client = (SocketChannel) key.channel();
+                        writeBuffer.clear();
+                        // 这里简单做了
+                        // 在读取完client数据之后暂时都统一写入一个字符串
+                        writeBuffer.put("read success\r\n".getBytes(StandardCharsets.UTF_8));
+                        writeBuffer.flip();
+                        client.write(writeBuffer);
+                        key.interestOps(SelectionKey.OP_READ);
+                    }
+                }
+            }
+        });
+
+    }
+}
+
+```
+
+这里要关注的重点是，当 `master-reactor`监听到连接之后，将这个连接交给 `slave-reactor`进行后续的操作，而 `slave-reactor`单独使用一个selector来管理这个连接。所有的 `selector`处理都是在线程池中处理。当然和上面图中显示有点区别，就是没有再为读写创建一个线程池，如果要用也是可以的。
+
+
+### 1.2.4 netty 线程模型
 
 `netty`的线程模型就是在上面模型基础上改进过来的，如图
 
@@ -131,8 +659,6 @@ spring-rpc
 
 ```
 
-
-
 ## 3.1 公共api模块
 
 ```xml
@@ -167,7 +693,6 @@ spring-rpc
 </project>
 ```
 
-
 rpc服务涉及的请求方和响应方需要使用同一套请求和响应报文
 
 ```java
@@ -198,7 +723,6 @@ public class RpcResponse {
 }
 ```
 
-
 然后创建一个简单的服务，用于后面验证
 
 ```java
@@ -221,7 +745,6 @@ public class User {
 
 这里只是定义了api，具体的服务实现要交给服务端来实现
 
-
 ## 3.2 服务端
 
 ```properties
@@ -229,7 +752,6 @@ public class User {
 
 server.port=8081
 ```
-
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -438,7 +960,6 @@ public @interface RpcService {
 }
 ```
 
-
 然后我们需要启动服务端的服务，这里一个是项目基本运行的服务，另外一个是netty服务，专门用户相关请求响应的收发
 
 ```java
@@ -498,7 +1019,6 @@ public class UserServiceImpl implements UserService {
 }
 ```
 
-
 ## 3.3 客户端
 
 ```xml
@@ -550,7 +1070,6 @@ public class UserServiceImpl implements UserService {
 ```properties
 server.port=8088
 ```
-
 
 客户端相对复杂点，首先我们要接受外界的请求调用
 
@@ -749,7 +1268,6 @@ public class MyBeanPostProcessor implements BeanPostProcessor {
 }
 ```
 
-
 这里实现了自定义的BeanPostProcessor类，可以对bean进行增强。从每个bean中获取所有属性，然后从中过滤出需要进行代理的服务。
 
 ```java
@@ -815,7 +1333,6 @@ public class RpcClientProxy {
 }
 ```
 
-
 最后看下启动类
 
 ```java
@@ -847,7 +1364,6 @@ public class SpringRpcClientApplication implements CommandLineRunner {
     }
 }
 ```
-
 
 测试
 
