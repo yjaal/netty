@@ -68,6 +68,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             assert eventLoop().inEventLoop();
             final ChannelConfig config = config();
             final ChannelPipeline pipeline = pipeline();
+            // 接收对端数据时，ByteBuf的分配策略，基于历史数据动态调整初始化大小，避免太大浪费空间，太小又会频繁扩容
             final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
             allocHandle.reset(config);
 
@@ -76,6 +77,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             try {
                 try {
                     do {
+                        // 这里其实就是将接收到的客户端添加到缓存
                         int localRead = doReadMessages(readBuf);
                         if (localRead == 0) {
                             break;
@@ -84,7 +86,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                             closed = true;
                             break;
                         }
-
+                        // 递增已读取消息的数量
                         allocHandle.incMessagesRead(localRead);
                     } while (continueReading(allocHandle));
                 } catch (Throwable t) {
@@ -94,15 +96,18 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                 int size = readBuf.size();
                 for (int i = 0; i < size; i ++) {
                     readPending = false;
+                    // 通过pipeline传播channelRead事件
                     pipeline.fireChannelRead(readBuf.get(i));
                 }
                 readBuf.clear();
+                // 读取完毕的回调，有的Handle会根据本次读取的总字节数，自适应调整下次应该分配的缓冲区大小
                 allocHandle.readComplete();
+                // 通过pipeline传播ChannelReadComplete事件
                 pipeline.fireChannelReadComplete();
 
                 if (exception != null) {
                     closed = closeOnReadError(exception);
-
+                    // 通过pipeline传播异常事件
                     pipeline.fireExceptionCaught(exception);
                 }
 

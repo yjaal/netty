@@ -202,12 +202,13 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             checkMultiplicity(handler);
 
             newCtx = newContext(group, filterName(name, handler), handler);
-
+            // 这里其实是添加到倒数第二个位置
             addLast0(newCtx);
 
             // If the registered is false it means that the channel was not registered on an eventLoop yet.
             // In this case we add the context to the pipeline and add a task that will call
             // ChannelHandler.handlerAdded(...) once the channel is registered.
+            // 初始化时channel还未注册到selector上面，这里为false
             if (!registered) {
                 newCtx.setAddPending();
                 callHandlerCallbackLater(newCtx, true);
@@ -224,6 +225,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         return this;
     }
 
+    /**
+     * 这里是添加到pipeline到倒数第二个位置
+     */
     private void addLast0(AbstractChannelHandlerContext newCtx) {
         AbstractChannelHandlerContext prev = tail.prev;
         newCtx.prev = prev;

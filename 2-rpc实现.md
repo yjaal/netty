@@ -574,6 +574,8 @@ public class SlaveReactorNioServer {
 
 这里要关注的重点是，当 `master-reactor`监听到连接之后，将这个连接交给 `slave-reactor`进行后续的操作，而 `slave-reactor`单独使用一个selector来管理这个连接。所有的 `selector`处理都是在线程池中处理。当然和上面图中显示有点区别，就是没有再为读写创建一个线程池，如果要用也是可以的。
 
+上面的例子比较简陋，这里只是作为一个说明的简单例子。
+
 
 ### 1.2.4 netty 线程模型
 

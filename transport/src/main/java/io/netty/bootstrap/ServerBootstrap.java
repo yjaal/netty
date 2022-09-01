@@ -51,6 +51,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
     private final Map<ChannelOption<?>, Object> childOptions = new LinkedHashMap<ChannelOption<?>, Object>();
     private final Map<AttributeKey<?>, Object> childAttrs = new ConcurrentHashMap<AttributeKey<?>, Object>();
     private final ServerBootstrapConfig config = new ServerBootstrapConfig(this);
+    // workGroup
     private volatile EventLoopGroup childGroup;
     private volatile ChannelHandler childHandler;
 
@@ -129,9 +130,13 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
 
     @Override
     void init(Channel channel) {
+        // 这里就是通过option方法设置的
         setChannelOptions(channel, newOptionsArray(), logger);
+        // 这里是通过attr方法设置的
         setAttributes(channel, newAttributesArray());
 
+        // 这里获取channel上面的pipeline，在实例化channel的时候就会创建pipeline，
+        // 是一个双向链表结构
         ChannelPipeline p = channel.pipeline();
 
         final EventLoopGroup currentChildGroup = childGroup;
@@ -139,15 +144,22 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         final Entry<ChannelOption<?>, Object>[] currentChildOptions = newOptionsArray(childOptions);
         final Entry<AttributeKey<?>, Object>[] currentChildAttrs = newAttributesArray(childAttrs);
 
+        // 这里添加了一个ChannelInitializer，是一个抽象的入站handler
+        // 这里添加的任务就是简化注册完毕后的初始化操作，一个工具类，在
+        // 完成初始化动作之后会从pipeline中移出
+        // 利用 ChannelInitializer 将初始化逻辑封装起来，当 channel
+        // 注册到 eventLoop 中之后会触发事件，然后就会调用 ChannelInitializer#initChannel
+        // 来执行初始化
         p.addLast(new ChannelInitializer<Channel>() {
             @Override
             public void initChannel(final Channel ch) {
                 final ChannelPipeline pipeline = ch.pipeline();
+                // 这个handler就是我们初始设置的处理handler
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
                     pipeline.addLast(handler);
                 }
-
+                // 添加一个ServerBootstrapAcceptor，这样就可以处理入站事件
                 ch.eventLoop().execute(new Runnable() {
                     @Override
                     public void run() {
@@ -172,6 +184,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         return this;
     }
 
+    // 从类名上面来看是接收连接的处理类
     private static class ServerBootstrapAcceptor extends ChannelInboundHandlerAdapter {
 
         private final EventLoopGroup childGroup;
@@ -201,9 +214,16 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             };
         }
 
+        /**
+         * 有客户端连接时，触发.
+         * NioEventLoop会监听Selector事件，OP_ACCEPT事件到达时，触发Unsafe.read()。
+         * AbstractNioMessageChannel.NioMessageUnsafe#read()
+         * 它会调用ServerSocketChannel.accept()获取客户端连接，并触发channelRead()回调。
+         */
         @Override
         @SuppressWarnings("unchecked")
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            // 这里就是NioSocketChannel
             final Channel child = (Channel) msg;
 
             child.pipeline().addLast(childHandler);
@@ -212,6 +232,8 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             setAttributes(child, childAttrs);
 
             try {
+                // 将客户端channel注册到WorkerGroup,也就是接收到客户端连接之后，剩下的工作
+                // 交给WorkerGroup，具体的读取逻辑由我们设置的handler处理
                 childGroup.register(child).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture future) throws Exception {

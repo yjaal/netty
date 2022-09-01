@@ -32,6 +32,8 @@ public final class DefaultEventExecutorChooserFactory implements EventExecutorCh
 
     @Override
     public EventExecutorChooser newChooser(EventExecutor[] executors) {
+        // 如果数组长度是2的幂次方，那么选择此中计算方式，是一种位运算
+        // 但仅仅只是计算方式不同，基本逻辑差不多
         if (isPowerOfTwo(executors.length)) {
             return new PowerOfTwoEventExecutorChooser(executors);
         } else {
