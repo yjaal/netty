@@ -15,6 +15,8 @@
  */
 package io.netty.channel.socket.nio;
 
+import static io.netty.channel.internal.ChannelUtils.MAX_BYTES_PER_GATHERING_WRITE_ATTEMPTED_LOW_THRESHOLD;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelException;
@@ -37,7 +39,6 @@ import io.netty.util.internal.SuppressJava6Requirement;
 import io.netty.util.internal.UnstableApi;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -48,8 +49,6 @@ import java.nio.channels.SocketChannel;
 import java.nio.channels.spi.SelectorProvider;
 import java.util.Map;
 import java.util.concurrent.Executor;
-
-import static io.netty.channel.internal.ChannelUtils.MAX_BYTES_PER_GATHERING_WRITE_ATTEMPTED_LOW_THRESHOLD;
 
 /**
  * {@link io.netty.channel.socket.SocketChannel} which uses NIO selector based implementation.
@@ -382,6 +381,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         do {
             if (in.isEmpty()) {
                 // All written so clear OP_WRITE
+                // 没有数据，清理掉 写key
                 clearOpWrite();
                 // Directly return here so incompleteWrite(...) is not called.
                 return;

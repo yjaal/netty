@@ -15,6 +15,8 @@
  */
 package io.netty.channel;
 
+import static java.lang.Math.min;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufHolder;
 import io.netty.buffer.Unpooled;
@@ -30,14 +32,11 @@ import io.netty.util.internal.PromiseNotificationUtil;
 import io.netty.util.internal.SystemPropertyUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
-
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
-
-import static java.lang.Math.min;
 
 /**
  * (Transport implementors only) an internal data structure used by {@link AbstractChannel} to store its pending
@@ -507,6 +506,7 @@ public final class ChannelOutboundBuffer {
      * Returns the number of {@link ByteBuffer} that can be written out of the {@link ByteBuffer} array that was
      * obtained via {@link #nioBuffers()}. This method <strong>MUST</strong> be called after {@link #nioBuffers()}
      * was called.
+     * nioBuffers数组大小，或者nioBuffer数量
      */
     public int nioBufferCount() {
         return nioBufferCount;
