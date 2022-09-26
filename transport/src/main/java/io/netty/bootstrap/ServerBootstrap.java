@@ -154,7 +154,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             @Override
             public void initChannel(final Channel ch) {
                 final ChannelPipeline pipeline = ch.pipeline();
-                // 这个handler就是我们初始设置的处理handler
+                // 这个handler就是我们初始设置的处理handler(.handler(...))
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
                     pipeline.addLast(handler);
@@ -223,9 +223,9 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         @Override
         @SuppressWarnings("unchecked")
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
-            // 这里就是NioSocketChannel
+            // NioSocketChannel
             final Channel child = (Channel) msg;
-
+            // 添加到workgroup中
             child.pipeline().addLast(childHandler);
 
             setChannelOptions(child, childOptions, logger);

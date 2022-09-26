@@ -45,6 +45,9 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
     private long id;
 
     private long deadlineNanos;
+    // =0表示只执行一次的任务，
+    // >0表示固定频率的任务，执行完后需要再放回队列，下次执行的开始时间以上一次任务的开始时间计算得出
+    // <0表示固定延时的任务，执行完后需要再放回队列，下次执行的开始时间以上一次任务结束时间计算得出
     /* 0 - no repeat, >0 - repeat at fixed rate, <0 - repeat with fixed delay */
     private final long periodNanos;
 
@@ -158,14 +161,19 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
         try {
             if (delayNanos() > 0L) {
                 // Not yet expired, need to add or remove from queue
+                // 执行时间还未到
                 if (isCancelled()) {
+                    // 任务已取消，直接移除
                     scheduledExecutor().scheduledTaskQueue().removeTyped(this);
                 } else {
+                    // 否则，重新添加回去
                     scheduledExecutor().scheduleFromEventLoop(this);
                 }
                 return;
             }
+            // 只执行一次的任务
             if (periodNanos == 0) {
+                // 要开始执行了，不允许撤销了
                 if (setUncancellableInternal()) {
                     V result = runTask();
                     setSuccessInternal(result);
@@ -176,11 +184,14 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
                     runTask();
                     if (!executor().isShutdown()) {
                         if (periodNanos > 0) {
+                            // 固定频率任务
                             deadlineNanos += periodNanos;
                         } else {
+                            // 固定延时的任务
                             deadlineNanos = nanoTime() - periodNanos;
                         }
                         if (!isCancelled()) {
+                            // 执行完后重新放回去
                             scheduledExecutor().scheduledTaskQueue().add(this);
                         }
                     }

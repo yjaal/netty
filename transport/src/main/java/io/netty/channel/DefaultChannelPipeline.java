@@ -209,8 +209,13 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             // In this case we add the context to the pipeline and add a task that will call
             // ChannelHandler.handlerAdded(...) once the channel is registered.
             // 初始化时channel还未注册到selector上面，这里为false
+            // 也就是说如果还未注册，那么ChannelInitializer.initChannel不会执行
+            // 注册之后PendingHandlerAddedTask会被调用，经过一系列调用之后，
+            // ChannelInitializer.handleAdded()方法会被触发，执行ChannelInitializer.initChannel
+            // 后面将自己从pipeline中移除
             if (!registered) {
                 newCtx.setAddPending();
+                // 这里添加一个延迟任务
                 callHandlerCallbackLater(newCtx, true);
                 return this;
             }
@@ -221,6 +226,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
                 return this;
             }
         }
+        // 立即执行
         callHandlerAdded0(newCtx);
         return this;
     }
@@ -454,15 +460,18 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     private AbstractChannelHandlerContext remove(final AbstractChannelHandlerContext ctx) {
+        // 非头和尾节点
         assert ctx != head && ctx != tail;
 
         synchronized (this) {
+            // 从pipeline中移除
             atomicRemoveFromHandlerList(ctx);
 
             // If the registered is false it means that the channel was not registered on an eventloop yet.
             // In this case we remove the context from the pipeline and add a task that will call
             // ChannelHandler.handlerRemoved(...) once the channel is registered.
             if (!registered) {
+                // 如果此时channel还未注册成功，那么添加一个移除的任务，后面执行
                 callHandlerCallbackLater(ctx, false);
                 return ctx;
             }
@@ -647,6 +656,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     final void invokeHandlerAddedIfNeeded() {
         assert channel.eventLoop().inEventLoop();
+        // 首次注册
         if (firstRegistration) {
             firstRegistration = false;
             // We are now registered to the EventLoop. It's time to call the callbacks for the ChannelHandlers,
@@ -1101,6 +1111,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     private void callHandlerAddedForAllHandlers() {
         final PendingHandlerCallback pendingHandlerCallbackHead;
         synchronized (this) {
+            // 如果未注册
             assert !registered;
 
             // This Channel itself was registered.
@@ -1399,8 +1410,10 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
         @Override
         public void channelActive(ChannelHandlerContext ctx) {
+            // 向后传递
             ctx.fireChannelActive();
-
+            // 如果是autoRead则自动触发read事件传播
+            // 在read回调函数中触发 OP_ACCEPT 注册
             readIfIsAutoRead();
         }
 
@@ -1464,6 +1477,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         void execute() {
             EventExecutor executor = ctx.executor();
             if (executor.inEventLoop()) {
+                // 执行任务
                 callHandlerAdded0(ctx);
             } else {
                 try {

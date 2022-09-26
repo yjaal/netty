@@ -471,18 +471,28 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 promise.setFailure(new IllegalStateException("registered to an event loop already"));
                 return;
             }
+            // 验证Reactor模型EventLoop是否与Channel的类型匹配
+            // Netty对三种IO模型：Oio,Nio,Aio的支持，用户可以通过改变Netty核心类的前缀轻松切换IO模型。
+            // isCompatible方法目的就是需要保证Reactor和Channel使用的是同一种IO模型。
             if (!isCompatible(eventLoop)) {
                 promise.setFailure(
                         new IllegalStateException("incompatible event loop type: " + eventLoop.getClass().getName()));
                 return;
             }
-
+            // 这里实现了channel和EventLoop的绑定
             AbstractChannel.this.eventLoop = eventLoop;
 
+            // Server启动注册时Reactor还未启动，但是后续再注册相关channel时，
+            // Reactor线程已经启动了
+            // 如果是当前线程，也就是说注册操作必须由Reactor线程来完成
+            // EventLoop具备线程池的功能，那么必然会有一个thread属性来保存自己所在的线程，这样就可以和
+            // 当前线程进行比较了
             if (eventLoop.inEventLoop()) {
                 register0(promise);
             } else {
                 try {
+                    // 如果当前执行线程是外部线程，则需要将register0注册操作
+                    // 封装程异步Task 由Reactor线程执行，此时Reactor线程才启动
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -507,20 +517,28 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 if (!promise.setUncancellable() || !ensureOpen(promise)) {
                     return;
                 }
+                // 首次注册
                 boolean firstRegistration = neverRegistered;
+                // 注册
                 doRegister();
                 neverRegistered = false;
                 registered = true;
 
                 // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
                 // user may already fire events through the pipeline in the ChannelFutureListener.
+                // 注册完成之后回调ChannelInitializer.handlerAdded
                 pipeline.invokeHandlerAddedIfNeeded();
-
+                // 设置regFuture为success，触发operationComplete回调，将bind操作存入Reactor任务队列
+                // 等待Reactor线程执行
                 safeSetSuccess(promise);
+                // 触发channelRegister事件，当前的 register 操作已经成功，该事件应该被 pipeline 上
+                // 所有关心 register 事件的 handler 感知到，往 pipeline 中扔一个channelRegister事件
                 pipeline.fireChannelRegistered();
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.
+                // channel已经打开
                 if (isActive()) {
+                    // 如果是首次中注册，那么触发channel激活事件
                     if (firstRegistration) {
                         pipeline.fireChannelActive();
                     } else if (config().isAutoRead()) {
@@ -528,6 +546,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         // again so that we process inbound data.
                         //
                         // See https://github.com/netty/netty/issues/4805
+                        // 如果channel已经注册过了，就让channel去监听OP_READ事件
                         beginRead();
                     }
                 }
@@ -562,17 +581,20 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
             boolean wasActive = isActive();
             try {
+                // 调用底层绑定方法
                 doBind(localAddress);
             } catch (Throwable t) {
                 safeSetFailure(promise, t);
                 closeIfClosed();
                 return;
             }
-
+            // 这里又封装成异步任务了，主要是如果直接调用触发激活事件
+            // 那么会影响safeSetSuccess的执行，延迟了监听器的回调
             if (!wasActive && isActive()) {
                 invokeLater(new Runnable() {
                     @Override
                     public void run() {
+                        // 触发channel激活事件
                         pipeline.fireChannelActive();
                     }
                 });

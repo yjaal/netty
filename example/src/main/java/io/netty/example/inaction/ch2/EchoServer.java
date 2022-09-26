@@ -8,6 +8,8 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.logging.LogLevel;
+import io.netty.handler.logging.LoggingHandler;
 
 /**
  * 服务端
@@ -33,9 +35,11 @@ public class EchoServer {
                 .channel(NioServerSocketChannel.class)
                 //设置线程队列得到连接个数
                 .option(ChannelOption.SO_BACKLOG, 128)
+                // 设置主Reactor中的handler，如果要设置多个，需要使用ChannelInitializer
+                .handler(new LoggingHandler(LogLevel.INFO))
                 //设置保持活动连接状态
                 .childOption(ChannelOption.SO_KEEPALIVE, true)
-                //使用匿名内部类的形式初始化通道对象
+                //使用匿名内部类的形式初始化通道对象，设置从Reactor中的handler
                 .childHandler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel socketChannel) throws Exception {

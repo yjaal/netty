@@ -15,12 +15,11 @@
  */
 package io.netty.util.concurrent;
 
+import static io.netty.util.concurrent.ScheduledFutureTask.deadlineNanos;
+
 import io.netty.util.internal.DefaultPriorityQueue;
 import io.netty.util.internal.ObjectUtil;
 import io.netty.util.internal.PriorityQueue;
-
-import static io.netty.util.concurrent.ScheduledFutureTask.deadlineNanos;
-
 import java.util.Comparator;
 import java.util.Queue;
 import java.util.concurrent.Callable;
@@ -126,10 +125,12 @@ public abstract class AbstractScheduledEventExecutor extends AbstractEventExecut
     protected final Runnable pollScheduledTask(long nanoTime) {
         assert inEventLoop();
 
+        // 其实就是判断定时任务是不是需要开始执行了
         ScheduledFutureTask<?> scheduledTask = peekScheduledTask();
         if (scheduledTask == null || scheduledTask.deadlineNanos() - nanoTime > 0) {
             return null;
         }
+        // 这里队列中的定时任务只执行一次吗？
         scheduledTaskQueue.remove();
         scheduledTask.setConsumed();
         return scheduledTask;

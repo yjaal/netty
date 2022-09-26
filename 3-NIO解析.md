@@ -8,6 +8,8 @@ Netty底层是基于NIO实现的，所以需要先对NIO进行详细分析，这
 
 [零拷贝技术的原理与在java中应用](https://blog.csdn.net/u022812849/article/details/109805403)
 
+[聊聊 Netty 那些事儿之从内核角度看 IO 模型](https://heapdump.cn/article/4123918)
+
 ## 1.1 相关前置知识
 
 ### 1.1.1 零拷贝
@@ -1733,9 +1735,7 @@ public final int validOps() {
 
 注意：`SelectionKey`是线程安全的。
 
-
 最后注意：我们一般在写相关服务的时候，一般会获取所有准备好了的 `key`，如 `selector.selectedKeys()`，从这里可以看到时获取到所有准备好的 `key `，然后进行迭代处理，在处理的时候会将 `key`移除 `iter.remove`，但是注意，`selector`中还有一个 `keys`的集合，这个集合中的 `key`除非解除注册，不然是不会删除的。
-
 
 **interestOps与readyOps**
 
@@ -1868,7 +1868,7 @@ private int lockAndDoSelect(long timeout) throws IOException {
 }
 ```
 
-这里不同系统doSelect方法有所不同，具体逻辑不再深究
+这里不同系统 `doSelect`方法有所不同，具体逻辑不再深究。对于 `select`方法来说，如果入参不传或者传入值不等于0，那么表示阻塞选择，否则表示非阻塞选择。传入值如果大于0，其实这是一种带超时时间的阻塞，如果小于0表示阻塞（无时间限制）.
 
 # 4. Buffer
 

@@ -299,10 +299,12 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             boolean active = isActive();
 
             // trySuccess() will return false if a user cancelled the connection attempt.
+            // 设置结果为成功连接，唤醒相关监听器
             boolean promiseSet = promise.trySuccess();
 
             // Regardless if the connection attempt was cancelled, channelActive() event should be triggered,
             // because what happened is what happened.
+            // 不管连接请求是否被取消，都应该传播此事件。这里都判断有点疑惑
             if (!wasActive && active) {
                 pipeline().fireChannelActive();
             }
@@ -333,6 +335,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
 
             try {
                 boolean wasActive = isActive();
+                // 调用底层NIO处理连接事件
                 doFinishConnect();
                 fulfillConnectPromise(connectPromise, wasActive);
             } catch (Throwable t) {
@@ -379,12 +382,14 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         boolean selected = false;
         for (;;) {
             try {
+                // 这里就和我们自己使用NIO实现相关注册是一样的了
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;
             } catch (CancelledKeyException e) {
                 if (!selected) {
                     // Force the Selector to select now as the "canceled" SelectionKey may still be
                     // cached and not removed because no Select.select(..) operation was called yet.
+                    // 强制阻塞注册
                     eventLoop().selectNow();
                     selected = true;
                 } else {
@@ -410,9 +415,11 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         }
 
         readPending = true;
-
+        // ServerSocketChannel初始化时设置的值为readInterestOp=OP_ACCEPT
+        // SocketChannel初始化时设置的值为readInterestOp=OP_READ
         final int interestOps = selectionKey.interestOps();
         if ((interestOps & readInterestOp) == 0) {
+            // 这里添加OP_ACCEPT/OP_READ到interestOps集合中
             selectionKey.interestOps(interestOps | readInterestOp);
         }
     }
