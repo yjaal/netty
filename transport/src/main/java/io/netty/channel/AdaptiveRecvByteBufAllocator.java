@@ -15,12 +15,12 @@
  */
 package io.netty.channel;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import static io.netty.util.internal.ObjectUtil.checkPositive;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * The {@link RecvByteBufAllocator} that automatically increases and
@@ -34,24 +34,33 @@ import static java.lang.Math.min;
  */
 public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufAllocator {
 
+    // ByteBuffer最小容量，默认为64
     static final int DEFAULT_MINIMUM = 64;
     // Use an initial value that is bigger than the common MTU of 1500
+    // ByteBuffer初始化容量
     static final int DEFAULT_INITIAL = 2048;
+    // ByteBuffer最大容量
     static final int DEFAULT_MAXIMUM = 65536;
 
+    // 扩容步长
     private static final int INDEX_INCREMENT = 4;
+    // 缩容步长
     private static final int INDEX_DECREMENT = 1;
 
+    // RecvBuf分配容量表（扩缩容索引表）按照表中记录的容量大小进行扩缩容
     private static final int[] SIZE_TABLE;
 
     static {
+        // 初始化RecvBuf容量分配表
         List<Integer> sizeTable = new ArrayList<Integer>();
         for (int i = 16; i < 512; i += 16) {
+            // 当分配容量小于512时，扩容单位为16递增
             sizeTable.add(i);
         }
 
         // Suppress a warning since i becomes negative when an integer overflow happens
         for (int i = 512; i > 0; i <<= 1) { // lgtm[java/constant-comparison]
+            // 当分配容量大于512时，扩容单位为一倍，最终i会越界变为负值
             sizeTable.add(i);
         }
 
@@ -67,6 +76,9 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
     @Deprecated
     public static final AdaptiveRecvByteBufAllocator DEFAULT = new AdaptiveRecvByteBufAllocator();
 
+    /**
+     * 二分查找最贴近（第一个大于等于size）给定size容量的索引下标
+     */
     private static int getSizeTableIndex(final int size) {
         for (int low = 0, high = SIZE_TABLE.length - 1;;) {
             if (high < low) {
@@ -75,7 +87,7 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
             if (high == low) {
                 return high;
             }
-
+            // 无符号右移
             int mid = low + high >>> 1;
             int a = SIZE_TABLE[mid];
             int b = SIZE_TABLE[mid + 1];
@@ -92,10 +104,15 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
     }
 
     private final class HandleImpl extends MaxMessageHandle {
+        // 最小容量在扩缩容索引表SIZE_TABE中的index。默认是3。
         private final int minIndex;
+        // 最大容量在扩缩容索引表SIZE_TABE中的index。默认是38。
         private final int maxIndex;
+        // 当前容量在扩缩容索引表SIZE_TABE中的index。初始是33。
         private int index;
+        // 预计下一次分配buffer的容量，初始：2048
         private int nextReceiveBufferSize;
+        // 是否需要立即缩容
         private boolean decreaseNow;
 
         HandleImpl(int minIndex, int maxIndex, int initial) {
@@ -124,15 +141,20 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
         }
 
         private void record(int actualReadBytes) {
+            // 本次读取到的数据量小于缩容后的值，表明当前值大了些
             if (actualReadBytes <= SIZE_TABLE[max(0, index - INDEX_DECREMENT)]) {
+                // decreaseNow最初为false，表示不立即缩容，
+                // 此时如果需要缩容，则设置为true，表示下次缩容
                 if (decreaseNow) {
                     index = max(index - INDEX_DECREMENT, minIndex);
+                    // 缩容后的值
                     nextReceiveBufferSize = SIZE_TABLE[index];
                     decreaseNow = false;
                 } else {
                     decreaseNow = true;
                 }
             } else if (actualReadBytes >= nextReceiveBufferSize) {
+                // 如果实际读取的数据量大于目前期望读取的量，则需要扩容
                 index = min(index + INDEX_INCREMENT, maxIndex);
                 nextReceiveBufferSize = SIZE_TABLE[index];
                 decreaseNow = false;
@@ -141,6 +163,7 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
 
         @Override
         public void readComplete() {
+            // 是否进行扩容或者缩容
             record(totalBytesRead());
         }
     }

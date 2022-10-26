@@ -234,6 +234,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             try {
                 // 将客户端channel注册到WorkerGroup,也就是接收到客户端连接之后，剩下的工作
                 // 交给WorkerGroup，具体的读取逻辑由我们设置的handler处理
+                // 同时将SocketChannel注册到从Selector上，并监听OP_READ事件
                 childGroup.register(child).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture future) throws Exception {

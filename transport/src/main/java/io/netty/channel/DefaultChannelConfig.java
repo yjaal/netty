@@ -15,15 +15,6 @@
  */
 package io.netty.channel;
 
-import io.netty.buffer.ByteBufAllocator;
-import io.netty.util.internal.ObjectUtil;
-
-import java.util.IdentityHashMap;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-
 import static io.netty.channel.ChannelOption.ALLOCATOR;
 import static io.netty.channel.ChannelOption.AUTO_CLOSE;
 import static io.netty.channel.ChannelOption.AUTO_READ;
@@ -40,6 +31,14 @@ import static io.netty.channel.ChannelOption.WRITE_SPIN_COUNT;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
 import static io.netty.util.internal.ObjectUtil.checkPositive;
 import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
+
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.util.internal.ObjectUtil;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 /**
  * The default {@link ChannelConfig} implementation.
@@ -68,6 +67,7 @@ public class DefaultChannelConfig implements ChannelConfig {
     @SuppressWarnings("FieldMayBeFinal")
     private volatile int autoRead = 1;
     private volatile boolean autoClose = true;
+    // 水位线，用于控制待发送数据占用的内存总量
     private volatile WriteBufferWaterMark writeBufferWaterMark = WriteBufferWaterMark.DEFAULT;
     private volatile boolean pinEventExecutor = true;
 

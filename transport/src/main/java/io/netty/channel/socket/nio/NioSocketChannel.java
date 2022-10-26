@@ -346,6 +346,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     protected int doReadBytes(ByteBuf byteBuf) throws Exception {
         final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
         allocHandle.attemptedBytesRead(byteBuf.writableBytes());
+        // 这里直接调用底层将数据读取到byteBuf(DirectByteBuffer)中，初始大小为2048
         return byteBuf.writeBytes(javaChannel(), allocHandle.attemptedBytesRead());
     }
 
@@ -377,19 +378,25 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     @Override
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
         SocketChannel ch = javaChannel();
+        // 最大写入次数 默认为16
         int writeSpinCount = config().getWriteSpinCount();
         do {
             if (in.isEmpty()) {
                 // All written so clear OP_WRITE
-                // 没有数据，清理掉 写key
+                // 没有数据，清理掉OP_WRITE
                 clearOpWrite();
                 // Directly return here so incompleteWrite(...) is not called.
                 return;
             }
 
             // Ensure the pending writes are made of ByteBufs only.
+            // SO_SNDBUF设置的发送缓冲区大小 * 2 作为 最大写入字节数
             int maxBytesPerGatheringWrite = ((NioSocketChannelConfig) config).getMaxBytesPerGatheringWrite();
+            // 将ChannelOutboundBuffer中缓存的DirectBuffer转换成JDK NIO 的 ByteBuffer
+            // 表示本次循环最多可以从缓存in中转换多少个字节出来，也就是最多能发送多少字节
+            // 1024：最多可以转换出1024个nio ByteBuffer
             ByteBuffer[] nioBuffers = in.nioBuffers(1024, maxBytesPerGatheringWrite);
+            // ChannelOutboundBuffer中总共的DirectBuffer数
             int nioBufferCnt = in.nioBufferCount();
 
             // Always use nioBuffers() to workaround data-corruption.
@@ -397,6 +404,9 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
             switch (nioBufferCnt) {
                 case 0:
                     // We have something else beside ByteBuffers to write so fallback to normal writes.
+                    // ChannelOutboundBuffer只支持ByteBuf和FileRegion类型数据，这里转换的nio buffer
+                    // 为0，但是ChannelOutboundBuffer却不为空，那说明有FileRegion类型数据在传输
+                    // 正在进行网络文件的传输（这里主要针对FileRegion类型数据）
                     writeSpinCount -= doWrite0(in);
                     break;
                 case 1: {
@@ -407,10 +417,14 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     int attemptedBytes = buffer.remaining();
                     final int localWrittenBytes = ch.write(buffer);
                     if (localWrittenBytes <= 0) {
+                        // 当前socket发送缓存无法写入了，注册OP_WRITE，等待下次处理
                         incompleteWrite(true);
                         return;
                     }
+                    // 根据当前实际写入情况调整 maxBytesPerGatheringWrite数值
                     adjustMaxBytesPerGatheringWrite(attemptedBytes, localWrittenBytes, maxBytesPerGatheringWrite);
+                    // 如果ChannelOutboundBuffer中的某个Entry被全部写入 则删除该Entry
+                    // 如果Entry被写入了一部分 还有一部分未写入  则更新Entry中的readIndex 等待下次writeLoop继续写入
                     in.removeBytes(localWrittenBytes);
                     --writeSpinCount;
                     break;
@@ -420,14 +434,18 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // to check if the total size of all the buffers is non-zero.
                     // We limit the max amount to int above so cast is safe
                     long attemptedBytes = in.nioBufferSize();
+                    // 批量写入
                     final long localWrittenBytes = ch.write(nioBuffers, 0, nioBufferCnt);
                     if (localWrittenBytes <= 0) {
                         incompleteWrite(true);
                         return;
                     }
                     // Casting to int is safe because we limit the total amount of data in the nioBuffers to int above.
+                    // 根据实际写入情况调整一次写入数据大小的最大值
+                    // maxBytesPerGatheringWrite决定每次可以从channelOutboundBuffer中获取多少发送数据
                     adjustMaxBytesPerGatheringWrite((int) attemptedBytes, (int) localWrittenBytes,
                             maxBytesPerGatheringWrite);
+                    // 移除全部写完的BUffer，如果只写了部分数据则更新buffer的readerIndex，下一个writeLoop写入
                     in.removeBytes(localWrittenBytes);
                     --writeSpinCount;
                     break;

@@ -47,7 +47,7 @@ class EpollRecvByteAllocatorHandle extends DelegatingHandle implements ExtendedH
     }
 
     boolean maybeMoreDataToRead() {
-        /**
+        /*
          * EPOLL ET requires that we read until we get an EAGAIN
          * (see Q9 in <a href="https://man7.org/linux/man-pages/man7/epoll.7.html">epoll man</a>). However in order to
          * respect auto read we supporting reading to stop if auto read is off. It is expected that the

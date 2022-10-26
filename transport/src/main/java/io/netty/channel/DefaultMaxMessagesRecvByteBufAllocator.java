@@ -92,25 +92,35 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
      */
     public abstract class MaxMessageHandle implements ExtendedHandle {
         private ChannelConfig config;
+        // 每次事件轮训时，最多读取（默认16）的最大次数
+        // 可在启动配置类ServerBootstrap中通过ChannelOption.MAX_MESSAGES_PER_READ选项设置
         private int maxMessagePerRead;
+        // 本次事件轮训总共读取的message数，这里指的是接收连接的数量
         private int totalMessages;
+        // 本次事件轮训总共读取的字节数
         private int totalBytesRead;
+        // 表示本次read loop 尝试读取多少字节，byteBuffer剩余可写的字节数
         private int attemptedBytesRead;
+        // 本次read loop读取到的字节数
         private int lastBytesRead;
         private final boolean respectMaybeMoreData = DefaultMaxMessagesRecvByteBufAllocator.this.respectMaybeMoreData;
         private final UncheckedBooleanSupplier defaultMaybeMoreSupplier = new UncheckedBooleanSupplier() {
             @Override
             public boolean get() {
+                // 本次尝试读取的数据量和读取到的数据量相等： 表示ByteBuffer满载而归，说明可能
+                // 数据还没有读取完毕。如果不想等，表明数据已经全部读取完毕
                 return attemptedBytesRead == lastBytesRead;
             }
         };
 
         /**
          * Only {@link ChannelConfig#getMaxMessagesPerRead()} is used.
+         * 重置轮训统计数据
          */
         @Override
         public void reset(ChannelConfig config) {
             this.config = config;
+            // 默认16次
             maxMessagePerRead = maxMessagesPerRead();
             totalMessages = totalBytesRead = 0;
         }
@@ -143,6 +153,19 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
             return continueReading(defaultMaybeMoreSupplier);
         }
 
+        /**
+         * 这里主要关注后面两个判断
+         * totalMessages < maxMessagePerRead： 针对服务端的accept事件[NioServerSocketChannel]，
+         * 处于主Reactor, 判断客户端的连接数是否超过
+         * ignoreBytesRead || totalBytesRead > 0：针对read事件[NioSocketChanel],
+         * 处于从Reactor，判断读取的字节数是否达到上线。如果目前在主Reactor上，那么ignoreBytesRead=true，
+         * 因为主Reactor上不会接收客户端的数据，totalBytesRead=0。这里totalMessages < maxMessagePerRead
+         * 表示是否超出最大循环次数
+         * 上面是服务端处理OP_ACCEPT的判断，而处理OP_READ时需要注意
+         * maybeMoreDataSupplier.get()=ture表示尝试读取数据量和实际读取数据量相等，表明数据可能还未
+         * 读取完毕，respectMaybeMoreData默认为true，表示当数据可能还未读取完毕时需要认真对待，
+         * 如果设置为false，那么就表示不需要认真对待，继续读取
+         */
         @Override
         public boolean continueReading(UncheckedBooleanSupplier maybeMoreDataSupplier) {
             return config.isAutoRead() &&

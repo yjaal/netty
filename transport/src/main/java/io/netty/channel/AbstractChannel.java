@@ -889,7 +889,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         @Override
         public final void write(Object msg, ChannelPromise promise) {
             assertEventLoop();
-
+            // 待发送数据缓冲队列  Netty是全异步框架，所以这里需要一个缓冲队列来缓存用户需要发送的数据
             ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             if (outboundBuffer == null) {
                 try {
@@ -908,7 +908,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
             int size;
             try {
+                // 过滤message类型,这里只会接受DirectBuffer或者fileRegion类型的msg
                 msg = filterOutboundMessage(msg);
+                // 计算当前msg大小
                 size = pipeline.estimatorHandle().size(msg);
                 if (size < 0) {
                     size = 0;
@@ -933,13 +935,15 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             if (outboundBuffer == null) {
                 return;
             }
-
+            // 将flushedEntry指针指向ChannelOutboundBuffer头结点，此时变为即将要flush进Socket的数据队列
             outboundBuffer.addFlush();
+            // 将待写数据写进Socket
             flush0();
         }
 
         @SuppressWarnings("deprecation")
         protected void flush0() {
+            // 是否正在进行flush操作
             if (inFlush0) {
                 // Avoid re-entrance
                 return;
@@ -953,14 +957,17 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             inFlush0 = true;
 
             // Mark all pending write requests as failure if the channel is inactive.
+            // channel非激活状态（激活状态：open+connect）
             if (!isActive()) {
                 try {
                     // Check if we need to generate the exception at all.
                     if (!outboundBuffer.isEmpty()) {
                         if (isOpen()) {
+                            // channel处理非连接状态，通知promise写入失败，并触发channelWritabilityChanged事件
                             outboundBuffer.failFlushed(new NotYetConnectedException(), true);
                         } else {
                             // Do not trigger channelWritabilityChanged because the channel is closed already.
+                            // channel处于关闭状态 通知promise 写入失败 但不触发channelWritabilityChanged事件
                             outboundBuffer.failFlushed(newClosedChannelException(initialCloseCause, "flush0()"), false);
                         }
                     }
@@ -971,6 +978,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
 
             try {
+                // 写入socket
                 doWrite(outboundBuffer);
             } catch (Throwable t) {
                 handleWriteError(t);

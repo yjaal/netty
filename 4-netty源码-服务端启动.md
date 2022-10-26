@@ -1607,9 +1607,9 @@ private void execute(Runnable task, boolean immediate) {
 
 
 * `immediate：`表示提交的 `task`是否需要被立即执行。Netty中只要你提交的任务类型不是 `LazyRunnable`类型的任务，都是需要立即执行的。`immediate = true`
-* `addTaskWakesUp :` `true` 表示 `当且仅当只有`调用 `addTask`方法时才会唤醒 `Reactor线程`。调用别的方法并不会唤醒 `Reactor线程`。在初始化 `NioEventLoop`时会设置为 `false`，表示 `并不是只有`addTask方法才能唤醒 `Reactor线程` 还有其他方法可以唤醒 `Reactor线程`，比如这里的 `execute方法`就会唤醒 `Reactor线程`。
+* `addTaskWakesUp :` `true` 表示 `当且仅当只有`调用 `addTask`方法时才会唤醒 `Reactor线程`。调用别的方法并不会唤醒 `Reactor线程`。在初始化 `NioEventLoop`时会设置为 `false`，表示 `并不是只有`addTask方法才能唤醒 `Reactor线程` 还有其他方法可以唤醒 `Reactor线程`，比如这里的 `execute方法`就会唤醒 `Reactor线程`
 
-最后再finally中还是设置了
+最后再 `finally`中还是设置了
 
 ```java
 nextWakeupNanos.lazySet(AWAKE);
@@ -1839,7 +1839,7 @@ public final void finishConnect() {
 ((ChannelInboundHandler) handler()).channelActive(this);
 ```
 
-这里就会调用用户自定义的 `handler`处理类的 `channelActive`方法
+这里就会调用用户自定义的 `handler`处理类的 `channelActive`方法。
 
 
 ### 6.3.3 处理写事件
@@ -1852,6 +1852,7 @@ public final void finishConnect() {
 同样，这里暂不关注读事件的具体处理逻辑，和写事件处理一样，此时已经到服务端的从 `Reactor`或者客户端的 `Reactor`上面了。主要关注对 `Accept`事件的处理，关注其是如何从主 `Reactor`转交给从 `Reactor`的。
 
 ```java
+// AbstractNioMessageChannel.java
 public void read() {
     assert eventLoop().inEventLoop();
     final ChannelConfig config = config();
@@ -1937,7 +1938,7 @@ protected AbstractNioByteChannel(Channel parent, SelectableChannel ch) {
 }
 ```
 
-可以看到这里会重新注册一个读事件，继续监听。
+**可以看到这里会重新注册一个读事件，继续监听**。
 
 然后就是循环将此事件在主 `Reactor`的 `pipeline`中进行传递处理。还记得之前的 `pipeline`结构吗
 

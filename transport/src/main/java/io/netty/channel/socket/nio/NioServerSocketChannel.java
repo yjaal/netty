@@ -150,7 +150,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
         try {
             if (ch != null) {
-                // 添加到缓存中
+                // 添加到缓存中，注意这里创建出来的channel被初始化为可读
                 buf.add(new NioSocketChannel(this, ch));
                 return 1;
             }

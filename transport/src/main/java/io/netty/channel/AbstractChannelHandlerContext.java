@@ -786,8 +786,12 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             throw e;
         }
 
+        // flush=true 表示channelHandler中调用的是writeAndFlush方法，
+        // 这里需要找到pipeline中覆盖write或者flush方法的channelHandler
+        // flush=false 表示调用的是write方法，只需要找到pipeline中覆盖write方法的channelHandler
         final AbstractChannelHandlerContext next = findContextOutbound(flush ?
                 (MASK_WRITE | MASK_FLUSH) : MASK_WRITE);
+        // 用于检查内存泄漏
         final Object m = pipeline.touch(msg, next);
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {

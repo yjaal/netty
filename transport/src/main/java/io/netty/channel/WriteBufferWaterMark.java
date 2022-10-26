@@ -31,8 +31,9 @@ import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
  * {@code true} again.
  */
 public final class WriteBufferWaterMark {
-
+    // 低水位线-32KB
     private static final int DEFAULT_LOW_WATER_MARK = 32 * 1024;
+    // 高水位线-64KB
     private static final int DEFAULT_HIGH_WATER_MARK = 64 * 1024;
 
     public static final WriteBufferWaterMark DEFAULT =
