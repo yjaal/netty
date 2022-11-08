@@ -673,7 +673,7 @@ public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
             Throwable cause = future.cause();
             if (cause != null) {
                  处理异常情况
-            } else {        
+            } else {      
                  写入Socket成功后，Netty会通知到这里
             }
         }
@@ -738,7 +738,6 @@ private Entry tailEntry;
 // 这个其实就是unflushedEntry的一个临时变量，调用flush时会指向unflushedEntry所在的位置
 private Entry flushedEntry;
 ```
-
 
 ### 4.2.1 向channelOutboundBuffer中缓存待发送数据
 
@@ -813,7 +812,6 @@ public class EchoServerHandler extends ChannelInboundHandlerAdapter {
 }
 ```
 
-
 ## 4.3 Entry
 
 `ChannelOutboundBuffer`其实就是一个单向链表，`Entry`就是节点
@@ -880,7 +878,6 @@ public final class WriteBufferWaterMark {
 
 这也就是说如果数据超过 `64K`时，那 `channel`的状态就是不可写的状态，直到数据低于 `32K`时才可以写。
 
-
 ## 4.4 flush事件
 
 调用 `write`方法之后数据只是被存入到了 `ChannelOutboundBuffer`中，并不会写入到 `Socket`中。所以还需要调用 `flush`方法。`flush`事件的处理和 `write`事件处理基本类似，也是从后往前传播。
@@ -889,7 +886,6 @@ public final class WriteBufferWaterMark {
 
 * `channelHandlerContext.flush()`：`flush`事件会从当前 `channelHandler` 开始在 `pipeline` 中向前传播直到 `headContext`。
 * `channelHandlerContext.channel().flush()`：`flush `事件会从 `pipeline` 的尾结点 `tailContext `处开始向前传播直到 `headContext`。
-
 
 ```java
 public class EchoServerHandler extends ChannelInboundHandlerAdapter {
@@ -1098,7 +1094,6 @@ switch (nioBufferCnt) {
 
 对于普通类型的数据，则需要转换成 `nio buffer`，可能会转换成一个或者多个，然后进行发送。然后根据每次传输的数据量调整相关参数。而对于已经全部发送出去的 `Entry`，则需要删除。当 `localWrittenBytes`小于等于零时则表示 `socket`缓存无法写入数据了。
 
-
 回到主线，循环发送数据结束后存在两种情况，一种是 `socket`无法写入了，另外一种是循环达到最大次数限制了，下面要看结尾处理
 
 ```java
@@ -1123,3 +1118,4 @@ protected final void incompleteWrite(boolean setOpWrite) {
 如果是因为循环次数达到上限，此时就不能直接注册 `OP_WRITE`事件了，`Netty `不会允许 `reactor `线程一直在一个 `channel `上执行 `IO`操作，`reactor` 线程的执行时间需要均匀的分配到每个 `channel` 上。所以这里 `Netty` 会停下，转而去处理其他 `channel `上的 `IO `事件。而同时这里就不能直接注册 `OP_WRITE`事件了，因为次数已经达到上限，如果直接注册，那**这里一直会不停地收到 `epoll `的通知。所以这里只能向 `reactor `提交 `flushTask` 来继续完成剩下数据的写入，而不能注册 `OP_WRITE` 事件。**
 
 但是这里我们会首先清理 `OP_WRITE`事件，是因为当写事件发生后，`Netty`会直接调用 `channel`的 `forceFlush`方法，所以这里需要首先进行清理。
+
